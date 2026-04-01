@@ -122,8 +122,11 @@ export class DashboardComponent {
   });
 
   readonly upcomingMatches = computed<Match[]>(() => {
+    const now = new Date().toISOString();
     const all = this.matches.value() ?? [];
-    return all.filter((m) => m.status === 'upcoming' || m.status === 'toss_done').slice(0, 4);
+    return all
+      .filter((m) => (m.status === 'upcoming' || m.status === 'toss_done') && m.deadline > now)
+      .slice(0, 4);
   });
 
   readonly upcomingCount = computed(() => this.upcomingMatches().length);
