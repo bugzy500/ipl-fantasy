@@ -17,37 +17,46 @@ import { AuthService } from '../../../core/services/auth.service';
     MatIconModule, MatProgressSpinnerModule,
   ],
   template: `
-    <h2 class="text-2xl font-bold text-gray-800 mb-2">Join the League</h2>
-    <p class="text-gray-500 text-sm mb-6">
+    <h2 class="text-display text-xl font-semibold mb-2" style="color: var(--color-text);">
+      Join the League
+    </h2>
+    <p class="text-sm mb-6" style="color: var(--color-text-muted);">
       Enter the 6-character invite code shared by the Admin.
     </p>
 
     <form [formGroup]="form" (ngSubmit)="submit()" class="flex flex-col gap-4">
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="fill">
         <mat-label>Invite Code</mat-label>
         <input matInput formControlName="inviteCode" placeholder="e.g. A3F9C1"
                class="uppercase tracking-widest text-lg font-mono" maxlength="6" />
-        <mat-icon matSuffix>vpn_key</mat-icon>
+        <mat-icon matSuffix style="color: var(--color-text-subtle);">vpn_key</mat-icon>
       </mat-form-field>
 
       @if (successMsg()) {
-        <p class="text-green-600 text-sm text-center bg-green-50 p-2 rounded-lg">{{ successMsg() }}</p>
+        <p class="text-sm text-center p-3 rounded-lg"
+           style="background: rgba(34, 197, 94, 0.1); color: var(--color-success);">
+          {{ successMsg() }}
+        </p>
       }
       @if (errorMsg()) {
-        <p class="text-red-600 text-sm text-center bg-red-50 p-2 rounded-lg">{{ errorMsg() }}</p>
+        <p class="text-sm text-center p-3 rounded-lg"
+           style="background: rgba(232, 83, 74, 0.1); color: var(--color-danger);">
+          {{ errorMsg() }}
+        </p>
       }
 
-      <button mat-flat-button color="primary" type="submit"
-              [disabled]="loading() || form.invalid" class="h-12 text-base">
+      <button class="btn-primary w-full text-base" type="submit"
+              [disabled]="loading() || form.invalid">
         @if (loading()) {
-          <mat-spinner diameter="24" class="inline-block mr-2" />
+          <mat-spinner diameter="20" class="inline-block mr-2" />
         }
         Join League
       </button>
     </form>
 
-    <p class="text-center text-sm text-gray-500 mt-6">
-      <a routerLink="/dashboard" class="text-violet-600 font-medium hover:underline">Back to Dashboard</a>
+    <p class="text-center text-sm mt-6" style="color: var(--color-text-muted);">
+      <a routerLink="/dashboard" class="font-medium hover:underline"
+         style="color: var(--color-accent-hover);">Back to Dashboard</a>
     </p>
   `,
 })
@@ -71,7 +80,7 @@ export class JoinComponent {
 
     this.auth.joinLeague(this.form.value.inviteCode!).subscribe({
       next: () => {
-        this.successMsg.set('Joined successfully! Redirecting…');
+        this.successMsg.set('Joined successfully! Redirecting...');
         setTimeout(() => this.router.navigate(['/dashboard']), 1500);
       },
       error: (err) => {

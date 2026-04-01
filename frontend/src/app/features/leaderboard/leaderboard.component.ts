@@ -6,7 +6,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
-import { LeaderboardEntry } from '../../core/models/api.models';
+import { LeaderboardEntry, Award } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
 
 @Component({
@@ -14,53 +14,55 @@ import { firstValueFrom } from 'rxjs';
   standalone: true,
   imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, FormsModule],
   template: `
-    <div class="space-y-4">
-      <h1 class="text-2xl font-bold text-gray-800">Leaderboard</h1>
+    <div class="space-y-6 fade-up">
+      <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">
+        Leaderboard
+      </h1>
 
       <mat-tab-group animationDuration="200ms">
         <!-- Season Leaderboard -->
-        <mat-tab label="🏆 Season Overall">
+        <mat-tab label="Season Overall">
           @defer (on immediate) {
             @if (seasonLeaderboard.isLoading()) {
               <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
             }
-            <div class="mt-4 space-y-2">
+            <div class="mt-6 space-y-3">
               @for (entry of seasonLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-                <div class="flex items-center gap-3 p-4 rounded-xl border-2 transition-shadow hover:shadow-sm"
-                     [class.border-yellow-400]="i === 0"
-                     [class.border-gray-300]="i === 1"
-                     [class.border-orange-400]="i === 2"
-                     [class.border-gray-100]="i > 2"
-                     [class.bg-violet-50]="entry.userId === auth.currentUser()?.id">
-                  <div class="w-10 h-10 flex items-center justify-center rounded-full font-bold text-lg"
-                       [class.bg-yellow-100]="i === 0" [class.text-yellow-600]="i === 0"
-                       [class.bg-gray-100]="i === 1" [class.text-gray-500]="i === 1"
-                       [class.bg-orange-100]="i === 2" [class.text-orange-600]="i === 2"
-                       [class.bg-white]="i > 2" [class.text-gray-400]="i > 2">
-                    @switch (i) {
-                      @case (0) { 🥇 }
-                      @case (1) { 🥈 }
-                      @case (2) { 🥉 }
-                      @default { {{ i + 1 }} }
-                    }
+                <div class="flex items-center gap-4 p-4 rounded-xl transition-all stagger-item fade-up"
+                     [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
+                     [style.border]="i < 3 ? '1px solid ' + rankBorderColor(i) : '1px solid var(--color-border)'">
+                  <div class="w-10 h-10 flex items-center justify-center rounded-full text-display font-bold"
+                       [style.background]="rankBgColor(i)"
+                       [style.color]="rankColor(i)">
+                    {{ i + 1 }}
                   </div>
-                  <mat-icon class="text-gray-400">person</mat-icon>
+                  <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                    person
+                  </mat-icon>
                   <div class="flex-1">
-                    <div class="font-semibold">
+                    <div class="font-medium" style="color: var(--color-text);">
                       {{ entry.userName }}
                       @if (entry.userId === auth.currentUser()?.id) {
-                        <span class="text-xs text-violet-500 ml-1">(You)</span>
+                        <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
                       }
                     </div>
-                    <div class="text-xs text-gray-400">{{ entry.matchesPlayed }} matches played</div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">
+                      {{ entry.matchesPlayed }} matches played
+                    </div>
                   </div>
-                  <div class="text-xl font-bold text-violet-700">{{ entry.totalPoints }}</div>
+                  <div class="text-display text-xl font-bold" style="color: var(--color-accent-hover);">
+                    {{ entry.totalPoints }}
+                  </div>
                 </div>
               }
               @if ((seasonLeaderboard.value()?.length ?? 0) === 0 && !seasonLeaderboard.isLoading()) {
-                <div class="text-center py-12 text-gray-400">
-                  <mat-icon class="text-5xl">emoji_events</mat-icon>
-                  <p class="mt-2">No completed matches yet. Be ready!</p>
+                <div class="text-center py-16 card-surface">
+                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">
+                    emoji_events
+                  </mat-icon>
+                  <p class="mt-3" style="color: var(--color-text-muted);">
+                    No completed matches yet. Be ready!
+                  </p>
                 </div>
               }
             </div>
@@ -71,11 +73,11 @@ import { firstValueFrom } from 'rxjs';
 
         <!-- Match Leaderboard -->
         <mat-tab label="Match">
-          <div class="mt-4 space-y-4">
+          <div class="mt-6 space-y-4">
             <mat-select [(ngModel)]="selectedMatchId" placeholder="Select a completed match">
               @for (match of completedMatches.value() ?? []; track match._id) {
                 <mat-option [value]="match._id">
-                  {{ match.team1 }} vs {{ match.team2 }} — {{ formatDate(match.scheduledAt) }}
+                  {{ match.team1 }} vs {{ match.team2 }} - {{ formatDate(match.scheduledAt) }}
                 </mat-option>
               }
             </mat-select>
@@ -84,18 +86,75 @@ import { firstValueFrom } from 'rxjs';
               <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
             }
             @for (entry of matchLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-              <div class="flex items-center gap-3 p-3 rounded-xl border"
-                   [class.bg-violet-50]="entry.userId === auth.currentUser()?.id">
-                <span class="w-8 text-center font-bold">{{ i + 1 }}</span>
-                <mat-icon class="text-gray-400">person</mat-icon>
-                <span class="flex-1 font-medium">{{ entry.userName }}</span>
-                <span class="font-bold text-violet-700">{{ entry.totalPoints }}</span>
+              <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+                   [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
+                   style="border: 1px solid var(--color-border);">
+                <span class="w-8 text-center text-display font-bold"
+                      [style.color]="rankColor(i)">
+                  {{ i + 1 }}
+                </span>
+                <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                  person
+                </mat-icon>
+                <span class="flex-1 font-medium text-sm" style="color: var(--color-text);">
+                  {{ entry.userName }}
+                </span>
+                <span class="text-display font-bold" style="color: var(--color-accent-hover);">
+                  {{ entry.totalPoints }}
+                </span>
               </div>
             }
             @if (!selectedMatchId()) {
-              <p class="text-center text-gray-400 py-8">Select a match above to see results.</p>
+              <div class="text-center py-12 card-surface">
+                <p style="color: var(--color-text-muted);">Select a match above to see results.</p>
+              </div>
             }
           </div>
+        </mat-tab>
+        <!-- Awards -->
+        <mat-tab label="Awards">
+          @defer (on immediate) {
+            @if (seasonAwards.isLoading()) {
+              <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
+            }
+            <div class="mt-6 space-y-3">
+              @for (award of seasonAwards.value() ?? []; track award._id; let i = $index) {
+                <div class="flex items-center gap-4 p-4 rounded-xl stagger-item fade-up"
+                     style="background: var(--color-surface); border: 1px solid var(--color-border);">
+                  <div class="w-10 h-10 flex items-center justify-center rounded-full"
+                       [style.background]="awardBgColor(award.type)"
+                       [style.color]="awardIconColor(award.type)">
+                    <mat-icon style="font-size: 20px; width: 20px; height: 20px;">
+                      {{ awardIcon(award.type) }}
+                    </mat-icon>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-medium text-sm" style="color: var(--color-text);">
+                      {{ awardLabel(award.type) }}
+                    </div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">
+                      {{ awardUserName(award) }} — {{ award.value }}
+                    </div>
+                  </div>
+                  <div class="text-xs text-right" style="color: var(--color-text-subtle);">
+                    {{ awardMatchLabel(award) }}
+                  </div>
+                </div>
+              }
+              @if ((seasonAwards.value()?.length ?? 0) === 0 && !seasonAwards.isLoading()) {
+                <div class="text-center py-16 card-surface">
+                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">
+                    military_tech
+                  </mat-icon>
+                  <p class="mt-3" style="color: var(--color-text-muted);">
+                    No awards yet. Play some matches!
+                  </p>
+                </div>
+              }
+            </div>
+          } @placeholder {
+            <div class="flex justify-center p-8"><mat-spinner /></div>
+          }
         </mat-tab>
       </mat-tab-group>
     </div>
@@ -118,6 +177,10 @@ export class LeaderboardComponent {
     },
   });
 
+  readonly seasonAwards = resource({
+    loader: () => firstValueFrom(this.api.getSeasonAwards()),
+  });
+
   readonly matchLeaderboard = resource({
     loader: (): Promise<LeaderboardEntry[]> => {
       const id = this.selectedMatchId();
@@ -125,7 +188,72 @@ export class LeaderboardComponent {
     },
   });
 
+  rankColor(index: number): string {
+    if (index === 0) return '#F59E0B';
+    if (index === 1) return '#94A3B8';
+    if (index === 2) return '#D97706';
+    return 'var(--color-text-muted)';
+  }
+
+  rankBgColor(index: number): string {
+    if (index === 0) return 'rgba(245, 158, 11, 0.15)';
+    if (index === 1) return 'rgba(148, 163, 184, 0.12)';
+    if (index === 2) return 'rgba(217, 119, 6, 0.12)';
+    return 'var(--color-surface-elevated)';
+  }
+
+  rankBorderColor(index: number): string {
+    if (index === 0) return 'rgba(245, 158, 11, 0.3)';
+    if (index === 1) return 'rgba(148, 163, 184, 0.2)';
+    if (index === 2) return 'rgba(217, 119, 6, 0.25)';
+    return 'var(--color-border)';
+  }
+
   formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  awardIcon(type: string): string {
+    const map: Record<string, string> = {
+      top_scorer: 'emoji_events', best_captain: 'stars',
+      perfect_xi: 'verified', underdog_win: 'whatshot',
+    };
+    return map[type] ?? 'military_tech';
+  }
+
+  awardLabel(type: string): string {
+    const map: Record<string, string> = {
+      top_scorer: 'Top Scorer', best_captain: 'Best Captain Pick',
+      perfect_xi: 'Perfect XI', underdog_win: 'Underdog Win',
+    };
+    return map[type] ?? type;
+  }
+
+  awardBgColor(type: string): string {
+    const map: Record<string, string> = {
+      top_scorer: 'rgba(245, 158, 11, 0.15)', best_captain: 'rgba(124, 58, 237, 0.15)',
+      perfect_xi: 'rgba(34, 197, 94, 0.15)', underdog_win: 'rgba(239, 68, 68, 0.15)',
+    };
+    return map[type] ?? 'var(--color-surface-elevated)';
+  }
+
+  awardIconColor(type: string): string {
+    const map: Record<string, string> = {
+      top_scorer: '#F59E0B', best_captain: '#7C3AED',
+      perfect_xi: '#22C55E', underdog_win: '#EF4444',
+    };
+    return map[type] ?? 'var(--color-text-muted)';
+  }
+
+  awardUserName(award: Award): string {
+    return typeof award.userId === 'object' ? (award.userId as any).name : 'Unknown';
+  }
+
+  awardMatchLabel(award: Award): string {
+    if (typeof award.matchId === 'object') {
+      const m = award.matchId as any;
+      return `${m.team1} vs ${m.team2}`;
+    }
+    return '';
   }
 }

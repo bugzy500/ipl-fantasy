@@ -1,4 +1,4 @@
-import { Component, inject, input, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, inject, input, signal, computed, OnInit } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatChipsModule } from '@angular/material/chips';
@@ -9,13 +9,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Player, PlayerRole, MatchStatus } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 
-type CaptainRole = 'captain' | 'vice-captain' | null;
-
 const BUDGET = 100;
 const TEAM_SIZE = 11;
-const ROLE_LIMITS: Record<PlayerRole, [number, number]> = {
-  WK: [1, 4], BAT: [3, 6], AR: [1, 4], BOWL: [3, 6],
-};
 
 @Component({
   selector: 'app-team-builder',
@@ -28,128 +23,198 @@ const ROLE_LIMITS: Record<PlayerRole, [number, number]> = {
   template: `
     <div class="p-4 space-y-4">
 
-      <!-- Budget & count bar -->
-      <div class="bg-gradient-to-r from-violet-600 to-violet-800 rounded-xl p-4 text-white sticky top-0 z-10 shadow-lg">
-        <div class="flex justify-between items-center mb-2">
-          <div class="text-center">
-            <div class="text-2xl font-bold">{{ selectedPlayers().length }}/{{ TEAM_SIZE }}</div>
-            <div class="text-xs opacity-70">Players</div>
-          </div>
-          <div class="text-center">
-            <div class="text-2xl font-bold" [class.text-red-300]="creditsUsed() > BUDGET">
-              {{ creditsRemaining().toFixed(1) }}
+      <!-- View mode toggle (after submission) -->
+      @if (existingTeam() && viewMode()) {
+        <div class="space-y-4">
+          <!-- My team summary -->
+          <div class="card-elevated p-5" style="border: 1px solid var(--color-border);">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">
+                Your Team
+              </h3>
+              @if (!isDeadlinePassed()) {
+                <button class="btn-outline text-sm px-3 py-1.5" (click)="viewMode.set(false)">
+                  Edit Team
+                </button>
+              }
             </div>
-            <div class="text-xs opacity-70">Credits Left</div>
-          </div>
-          <div class="text-center">
-            <div class="text-sm font-medium">{{ captain() ? captainName() : '—' }}</div>
-            <div class="text-xs opacity-70">Captain (2x)</div>
-          </div>
-          <div class="text-center">
-            <div class="text-sm font-medium">{{ viceCaptain() ? vcName() : '—' }}</div>
-            <div class="text-xs opacity-70">VC (1.5x)</div>
+
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+              @for (player of selectedPlayerObjects(); track player._id) {
+                @let isCap = captain() === player._id;
+                @let isVC = viceCaptain() === player._id;
+                <div class="flex items-center gap-2 p-3 rounded-lg"
+                     [style.background]="isCap ? 'rgba(245, 158, 11, 0.12)' : isVC ? 'rgba(217, 119, 6, 0.08)' : 'var(--color-surface)'"
+                     style="border: 1px solid var(--color-border);">
+                  @if (isCap) {
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                          style="background: var(--color-warning); color: var(--color-base);">C</span>
+                  }
+                  @if (isVC) {
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                          style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
+                  }
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate" style="color: var(--color-text);">{{ player.name }}</div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">{{ player.role }} · {{ player.credits }}cr</div>
+                  </div>
+                </div>
+              }
+            </div>
           </div>
         </div>
+      }
 
-        <!-- Role count indicators -->
-        <div class="flex gap-2 justify-center mt-1">
-          @for (r of roleKeys; track r) {
-            <div class="text-center px-2">
-              <div class="text-sm font-semibold">{{ roleCounts()[r] }}</div>
-              <div class="text-xs opacity-60">{{ r }}</div>
+      <!-- Build mode -->
+      @if (!viewMode()) {
+        <!-- Budget & count bar -->
+        <div class="card-elevated p-4 sticky top-16 z-10"
+             style="border: 1px solid var(--color-border); backdrop-filter: blur(12px);">
+          <div class="flex justify-between items-center mb-2">
+            <div class="text-center">
+              <div class="text-display text-xl font-bold" style="color: var(--color-text);">
+                {{ selectedPlayers().length }}/{{ TEAM_SIZE }}
+              </div>
+              <div class="text-label">Players</div>
             </div>
-          }
-        </div>
-
-        @if (validationError()) {
-          <p class="text-yellow-300 text-xs text-center mt-2">⚠ {{ validationError() }}</p>
-        }
-      </div>
-
-      <!-- Role filter tabs -->
-      <mat-button-toggle-group [(value)]="activeRoleFilter" class="w-full">
-        <mat-button-toggle value="ALL" class="flex-1">All</mat-button-toggle>
-        @for (r of roleKeys; track r) {
-          <mat-button-toggle [value]="r" class="flex-1">{{ r }}</mat-button-toggle>
-        }
-      </mat-button-toggle-group>
-
-      <!-- Player list -->
-      <div class="space-y-2">
-        @for (player of filteredPlayers(); track player._id) {
-          @let selected = isSelected(player._id);
-          @let isCap = captain() === player._id;
-          @let isVC = viceCaptain() === player._id;
-
-          <div class="flex items-center gap-3 p-3 rounded-xl border-2 transition-all"
-               [class.border-violet-500]="selected"
-               [class.bg-violet-50]="selected"
-               [class.border-gray-200]="!selected"
-               [class.opacity-50]="!selected && selectedPlayers().length >= TEAM_SIZE && !isDeadlinePassed()">
-
-            <!-- Playing status dot -->
-            <div class="w-2 h-2 rounded-full flex-shrink-0"
-                 [class.bg-green-500]="player.playingStatus === 'playing'"
-                 [class.bg-red-500]="player.playingStatus === 'not_playing'"
-                 [class.bg-gray-300]="player.playingStatus === 'unknown'"
-                 [matTooltip]="player.playingStatus === 'playing' ? 'Playing' : player.playingStatus === 'not_playing' ? 'Not Playing' : 'XI not announced'">
+            <div class="text-center">
+              <div class="text-display text-xl font-bold"
+                   [style.color]="creditsUsed() > BUDGET ? 'var(--color-danger)' : 'var(--color-success)'">
+                {{ creditsRemaining().toFixed(1) }}
+              </div>
+              <div class="text-label">Credits Left</div>
             </div>
-
-            <!-- Player info -->
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-sm truncate">{{ player.name }}</div>
-              <div class="text-xs text-gray-500">{{ player.franchise }} · {{ player.role }}</div>
+            <div class="text-center">
+              <div class="text-sm font-medium" style="color: var(--color-warning);">
+                {{ captain() ? captainName() : '--' }}
+              </div>
+              <div class="text-label">Captain 2x</div>
             </div>
-
-            <!-- Credits -->
-            <div class="text-sm font-medium text-violet-600 w-10 text-center">
-              {{ player.credits }}
+            <div class="text-center">
+              <div class="text-sm font-medium" style="color: rgba(217, 119, 6, 0.9);">
+                {{ viceCaptain() ? vcName() : '--' }}
+              </div>
+              <div class="text-label">VC 1.5x</div>
             </div>
+          </div>
 
-            <!-- C/VC buttons (only when player is selected) -->
-            @if (selected && !isDeadlinePassed()) {
-              <button mat-mini-fab [color]="isCap ? 'accent' : ''"
-                      class="w-7 h-7 text-xs font-bold"
-                      (click)="setCaptain(player._id, $event)"
-                      matTooltip="Set as Captain">C</button>
-              <button mat-mini-fab [color]="isVC ? 'accent' : ''"
-                      class="w-7 h-7 text-xs font-bold"
-                      (click)="setViceCaptain(player._id, $event)"
-                      matTooltip="Set as Vice-Captain">V</button>
+          <!-- Role count indicators -->
+          <div class="flex gap-3 justify-center mt-2">
+            @for (r of roleKeys; track r) {
+              <div class="text-center px-2">
+                <div class="text-sm font-semibold" style="color: var(--color-text);">{{ roleCounts()[r] }}</div>
+                <div class="text-xs" style="color: var(--color-text-muted);">{{ r }}</div>
+              </div>
             }
-
-            <!-- Add/Remove button -->
-            <button mat-icon-button
-                    [disabled]="isDeadlinePassed() || (!selected && selectedPlayers().length >= TEAM_SIZE)"
-                    (click)="togglePlayer(player)">
-              <mat-icon [class.text-violet-600]="selected">
-                {{ selected ? 'remove_circle' : 'add_circle_outline' }}
-              </mat-icon>
-            </button>
           </div>
-        }
-      </div>
 
-      <!-- Submit button -->
-      <div class="sticky bottom-4 pt-2">
-        <button mat-flat-button color="primary" class="w-full h-14 text-base font-bold"
-                [disabled]="!canSubmit() || submitting() || isDeadlinePassed()"
-                (click)="submitTeam()">
-          @if (submitting()) {
-            <mat-spinner diameter="24" class="inline-block mr-2" />
+          @if (validationError()) {
+            <p class="text-xs text-center mt-2 py-1.5 rounded-lg"
+               style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);">
+              {{ validationError() }}
+            </p>
           }
-          @if (isDeadlinePassed()) {
-            🔒 Deadline Passed
-          } @else {
-            {{ existingTeam() ? 'Update Team' : 'Submit Team' }}
+        </div>
+
+        <!-- Role filter tabs -->
+        <mat-button-toggle-group [(value)]="activeRoleFilter" class="w-full">
+          <mat-button-toggle value="ALL" class="flex-1">All</mat-button-toggle>
+          @for (r of roleKeys; track r) {
+            <mat-button-toggle [value]="r" class="flex-1">{{ r }}</mat-button-toggle>
           }
-        </button>
-        @if (!canSubmit() && !isDeadlinePassed()) {
-          <p class="text-center text-xs text-gray-500 mt-1">{{ validationError() || 'Select 11 players with a Captain and Vice-Captain' }}</p>
-        }
-      </div>
+        </mat-button-toggle-group>
+
+        <!-- Player list -->
+        <div class="space-y-2">
+          @for (player of filteredPlayers(); track player._id) {
+            @let selected = isSelected(player._id);
+            @let isCap = captain() === player._id;
+            @let isVC = viceCaptain() === player._id;
+
+            <div class="flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer stagger-item"
+                 [style.background]="isCap ? 'rgba(245, 158, 11, 0.12)' : isVC ? 'rgba(217, 119, 6, 0.08)' : selected ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
+                 [style.border]="selected ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'"
+                 [style.opacity]="!selected && selectedPlayers().length >= TEAM_SIZE && !isDeadlinePassed() ? '0.4' : '1'"
+                 (click)="togglePlayer(player)">
+
+              <!-- Playing status dot -->
+              <div class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                   [style.background]="player.playingStatus === 'playing' ? 'var(--color-success)' : player.playingStatus === 'not_playing' ? 'var(--color-danger)' : 'var(--color-text-subtle)'"
+                   [matTooltip]="player.playingStatus === 'playing' ? 'Playing' : player.playingStatus === 'not_playing' ? 'Not Playing' : 'XI not announced'">
+              </div>
+
+              <!-- Player info -->
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-sm truncate" style="color: var(--color-text);">
+                  {{ player.name }}
+                  @if (isCap) {
+                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ml-1.5"
+                          style="background: var(--color-warning); color: var(--color-base);">C</span>
+                  }
+                  @if (isVC) {
+                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ml-1.5"
+                          style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
+                  }
+                </div>
+                <div class="text-xs" style="color: var(--color-text-muted);">{{ player.franchise }} · {{ player.role }}</div>
+              </div>
+
+              <!-- Credits -->
+              <div class="text-sm font-semibold w-10 text-center" style="color: var(--color-accent-hover);">
+                {{ player.credits }}
+              </div>
+
+              <!-- C/VC buttons (only when player is selected) -->
+              @if (selected && !isDeadlinePassed()) {
+                <button class="w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center transition-all"
+                        [style.background]="isCap ? 'var(--color-warning)' : 'var(--color-surface-elevated)'"
+                        [style.color]="isCap ? 'var(--color-base)' : 'var(--color-text-muted)'"
+                        (click)="setCaptain(player._id, $event)"
+                        matTooltip="Set as Captain">C</button>
+                <button class="w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center transition-all"
+                        [style.background]="isVC ? 'rgba(217, 119, 6, 0.7)' : 'var(--color-surface-elevated)'"
+                        [style.color]="isVC ? 'white' : 'var(--color-text-muted)'"
+                        (click)="setViceCaptain(player._id, $event)"
+                        matTooltip="Set as Vice-Captain">V</button>
+              }
+
+              <!-- Add/Remove icon -->
+              <mat-icon class="flex-shrink-0"
+                        [style.color]="selected ? 'var(--color-accent)' : 'var(--color-text-subtle)'"
+                        style="font-size: 22px; width: 22px; height: 22px;">
+                {{ selected ? 'check_circle' : 'add_circle_outline' }}
+              </mat-icon>
+            </div>
+          }
+        </div>
+
+        <!-- Submit button -->
+        <div class="sticky bottom-4 pt-2">
+          <button class="btn-primary w-full h-14 text-base font-semibold"
+                  [disabled]="!canSubmit() || submitting() || isDeadlinePassed()"
+                  (click)="submitTeam()">
+            @if (submitting()) {
+              <mat-spinner diameter="20" class="inline-block mr-2" />
+            }
+            @if (isDeadlinePassed()) {
+              Deadline Passed
+            } @else {
+              {{ existingTeam() ? 'Update Team' : 'Submit Team' }}
+            }
+          </button>
+          @if (!canSubmit() && !isDeadlinePassed()) {
+            <p class="text-center text-xs mt-2" style="color: var(--color-text-muted);">
+              {{ validationError() || 'Select 11 players with a Captain and Vice-Captain' }}
+            </p>
+          }
+        </div>
+      }
     </div>
   `,
+  styles: [`
+    :host { display: block; }
+    .cursor-pointer { cursor: pointer; }
+  `],
 })
 export class TeamBuilderComponent implements OnInit {
   readonly matchId = input.required<string>();
@@ -170,6 +235,7 @@ export class TeamBuilderComponent implements OnInit {
   readonly viceCaptain = signal<string | null>(null);
   readonly existingTeam = signal<boolean>(false);
   readonly submitting = signal(false);
+  readonly viewMode = signal(false);
 
   readonly isDeadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
 
@@ -177,6 +243,11 @@ export class TeamBuilderComponent implements OnInit {
     const filter = this.activeRoleFilter();
     const list = filter === 'ALL' ? this.players() : this.players().filter((p) => p.role === filter);
     return [...list].sort((a, b) => b.credits - a.credits);
+  });
+
+  readonly selectedPlayerObjects = computed(() => {
+    const ids = this.selectedPlayers();
+    return this.players().filter((p) => ids.includes(p._id));
   });
 
   readonly creditsUsed = computed(() => {
@@ -212,11 +283,11 @@ export class TeamBuilderComponent implements OnInit {
     if (this.creditsUsed() > BUDGET) return `Over budget by ${(this.creditsUsed() - BUDGET).toFixed(1)} credits`;
 
     const rc = this.roleCounts();
-    if (rc.WK < 1 || rc.WK > 4) return 'Need 1–4 Wicket-Keepers';
-    const batTotal = rc.WK + rc.BAT; // WK counts as a batsman
-    if (batTotal < 3 || batTotal > 6) return 'Need 3–6 Batters (WK included)';
-    if (rc.AR < 1 || rc.AR > 4) return 'Need 1–4 All-Rounders';
-    if (rc.BOWL < 3 || rc.BOWL > 6) return 'Need 3–6 Bowlers';
+    if (rc.WK < 1 || rc.WK > 4) return 'Need 1-4 Wicket-Keepers';
+    const batTotal = rc.WK + rc.BAT;
+    if (batTotal < 3 || batTotal > 6) return 'Need 3-6 Batters (WK included)';
+    if (rc.AR < 1 || rc.AR > 4) return 'Need 1-4 All-Rounders';
+    if (rc.BOWL < 3 || rc.BOWL > 6) return 'Need 3-6 Bowlers';
 
     const maxFranchise = Math.max(...Object.values(this.franchiseCounts()));
     if (maxFranchise > 7) return 'Max 7 players from one franchise';
@@ -237,15 +308,16 @@ export class TeamBuilderComponent implements OnInit {
   );
 
   ngOnInit() {
-    // Load existing team if user already submitted one
     this.api.getMyTeam(this.matchId()).subscribe({
       next: (team) => {
         this.existingTeam.set(true);
         this.selectedPlayers.set(team.players.map((p: any) => p._id ?? p));
         this.captain.set(typeof team.captain === 'string' ? team.captain : (team.captain as any)._id);
         this.viceCaptain.set(typeof team.viceCaptain === 'string' ? team.viceCaptain : (team.viceCaptain as any)._id);
+        // Show view mode if team exists
+        this.viewMode.set(true);
       },
-      error: () => {}, // 404 = no team yet, that's fine
+      error: () => {},
     });
   }
 
@@ -258,12 +330,10 @@ export class TeamBuilderComponent implements OnInit {
 
     const current = this.selectedPlayers();
     if (current.includes(player._id)) {
-      // Remove player and clear C/VC if needed
       this.selectedPlayers.set(current.filter((id) => id !== player._id));
       if (this.captain() === player._id) this.captain.set(null);
       if (this.viceCaptain() === player._id) this.viceCaptain.set(null);
     } else {
-      // Add player — check credits + franchise limit
       const newTotal = this.creditsUsed() + player.credits;
       if (newTotal > BUDGET) {
         this.snackBar.open(`Not enough credits (need ${player.credits}, have ${this.creditsRemaining().toFixed(1)})`, 'OK', { duration: 2500 });
@@ -304,7 +374,8 @@ export class TeamBuilderComponent implements OnInit {
     }).subscribe({
       next: () => {
         this.existingTeam.set(true);
-        this.snackBar.open('✅ Team saved successfully!', 'OK', { duration: 3000 });
+        this.viewMode.set(true);
+        this.snackBar.open('Team saved successfully!', 'OK', { duration: 3000 });
         this.submitting.set(false);
       },
       error: (err) => {

@@ -38,7 +38,7 @@ export interface Match {
   team2: Franchise;
   venue: string;
   scheduledAt: string; // ISO date string
-  deadline: string;    // ISO date string (scheduledAt + 25 min)
+  deadline: string;    // ISO date string (scheduledAt + 30 min)
   status: MatchStatus;
   playingXI: { team1: Player[]; team2: Player[] };
   result: string;
@@ -84,6 +84,18 @@ export interface LeaderboardEntry {
   totalPoints: number;
   matchesPlayed?: number;
   teamId?: string;
+}
+
+export type AwardType = 'top_scorer' | 'best_captain' | 'perfect_xi' | 'underdog_win';
+
+export interface Award {
+  _id: string;
+  matchId: string | Pick<Match, '_id' | 'team1' | 'team2' | 'scheduledAt'>;
+  type: AwardType;
+  userId: string | Pick<User, 'id' | 'name'>;
+  value: string;
+  description: string;
+  createdAt: string;
 }
 
 export interface MatchSquadResponse {

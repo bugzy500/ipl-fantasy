@@ -17,23 +17,26 @@ import { AuthService } from '../../../core/services/auth.service';
     MatIconModule, MatProgressSpinnerModule,
   ],
   template: `
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">Sign In</h2>
+    <h2 class="text-display text-xl font-semibold mb-6" style="color: var(--color-text);">
+      Sign In
+    </h2>
 
     <form [formGroup]="form" (ngSubmit)="submit()" class="flex flex-col gap-4">
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="fill">
         <mat-label>Email</mat-label>
         <input matInput type="email" formControlName="email" autocomplete="email" />
-        <mat-icon matSuffix>email</mat-icon>
+        <mat-icon matSuffix style="color: var(--color-text-subtle);">email</mat-icon>
         @if (form.get('email')?.invalid && form.get('email')?.touched) {
           <mat-error>Valid email required</mat-error>
         }
       </mat-form-field>
 
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="fill">
         <mat-label>Password</mat-label>
         <input matInput [type]="showPassword() ? 'text' : 'password'"
                formControlName="password" autocomplete="current-password" />
-        <button type="button" mat-icon-button matSuffix (click)="showPassword.update(v => !v)">
+        <button type="button" mat-icon-button matSuffix (click)="showPassword.update(v => !v)"
+                style="color: var(--color-text-subtle);">
           <mat-icon>{{ showPassword() ? 'visibility_off' : 'visibility' }}</mat-icon>
         </button>
         @if (form.get('password')?.invalid && form.get('password')?.touched) {
@@ -42,21 +45,25 @@ import { AuthService } from '../../../core/services/auth.service';
       </mat-form-field>
 
       @if (errorMsg()) {
-        <p class="text-red-600 text-sm text-center bg-red-50 p-2 rounded-lg">{{ errorMsg() }}</p>
+        <p class="text-sm text-center p-3 rounded-lg"
+           style="background: rgba(232, 83, 74, 0.1); color: var(--color-danger);">
+          {{ errorMsg() }}
+        </p>
       }
 
-      <button mat-flat-button color="primary" type="submit"
-              [disabled]="loading() || form.invalid" class="h-12 text-base">
+      <button class="btn-primary w-full text-base" type="submit"
+              [disabled]="loading() || form.invalid">
         @if (loading()) {
-          <mat-spinner diameter="24" class="inline-block mr-2" />
+          <mat-spinner diameter="20" class="inline-block mr-2" />
         }
         Sign In
       </button>
     </form>
 
-    <p class="text-center text-sm text-gray-500 mt-6">
+    <p class="text-center text-sm mt-6" style="color: var(--color-text-muted);">
       New here?
-      <a routerLink="/auth/register" class="text-violet-600 font-medium hover:underline">Create account</a>
+      <a routerLink="/auth/register" class="font-medium hover:underline"
+         style="color: var(--color-accent-hover);">Create account</a>
     </p>
   `,
 })

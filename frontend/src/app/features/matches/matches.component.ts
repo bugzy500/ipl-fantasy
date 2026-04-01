@@ -14,35 +14,39 @@ type FilterTab = 'all' | 'upcoming' | 'live' | 'completed';
   standalone: true,
   imports: [MatButtonToggleModule, MatProgressSpinnerModule, MatIconModule, MatchCardComponent],
   template: `
-    <div class="space-y-4">
+    <div class="space-y-6 fade-up">
       <div class="flex items-center justify-between flex-wrap gap-3">
-        <h1 class="text-2xl font-bold text-gray-800">Match Schedule</h1>
+        <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">
+          Match Schedule
+        </h1>
 
         <mat-button-toggle-group [(value)]="activeTab" aria-label="Filter matches">
           <mat-button-toggle value="all">All</mat-button-toggle>
           <mat-button-toggle value="upcoming">Upcoming</mat-button-toggle>
-          <mat-button-toggle value="live">
-            <mat-icon class="text-sm mr-1">circle</mat-icon>Live
-          </mat-button-toggle>
+          <mat-button-toggle value="live">Live</mat-button-toggle>
           <mat-button-toggle value="completed">Completed</mat-button-toggle>
         </mat-button-toggle-group>
       </div>
 
       @if (matches.isLoading()) {
-        <div class="flex justify-center p-12"><mat-spinner diameter="56" /></div>
+        <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
       }
       @if (matches.error()) {
-        <p class="text-red-500 text-center py-8">Failed to load matches. Please try again.</p>
+        <p class="text-center py-8" style="color: var(--color-danger);">
+          Failed to load matches. Please try again.
+        </p>
       }
 
       <div class="grid md:grid-cols-2 gap-4">
         @for (match of filteredMatches(); track match._id) {
-          <app-match-card [match]="match" />
+          <app-match-card [match]="match" class="stagger-item fade-up" />
         }
         @if (filteredMatches().length === 0 && !matches.isLoading()) {
-          <div class="col-span-2 text-center py-12 text-gray-400">
-            <mat-icon class="text-5xl mb-2">sports_cricket</mat-icon>
-            <p>No matches in this category yet.</p>
+          <div class="col-span-2 text-center py-12 card-surface">
+            <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">
+              sports_cricket
+            </mat-icon>
+            <p class="mt-2" style="color: var(--color-text-muted);">No matches in this category yet.</p>
           </div>
         }
       </div>

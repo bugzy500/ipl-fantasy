@@ -3,6 +3,7 @@ const FantasyTeam = require('../models/FantasyTeam.model');
 const Player = require('../models/Player.model');
 const Match = require('../models/Match.model');
 const { calculateFantasyPoints, applyMultiplier } = require('../services/scoring.service');
+const { calculateAwards } = require('../services/awards.service');
 
 /**
  * POST /api/scores/:matchId
@@ -57,12 +58,17 @@ const submitScores = async (req, res) => {
       }
 
       team.totalPoints = Math.round(totalPoints * 10) / 10; // 1 decimal place
+      team.isLocked = true;
       await team.save();
     }
 
     // 3. Mark match as completed
     match.status = 'completed';
     await match.save();
+
+    // 4. Calculate awards for this match
+    const playingXIIds = [...(match.playingXI?.team1 || []), ...(match.playingXI?.team2 || [])];
+    await calculateAwards(matchId, playerPointsMap, playingXIIds);
 
     res.json({ message: 'Scores submitted and fantasy teams updated', teamsUpdated: teams.length });
   } catch (err) {
