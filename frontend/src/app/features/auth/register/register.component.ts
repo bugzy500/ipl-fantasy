@@ -38,6 +38,13 @@ import { AuthService } from '../../../core/services/auth.service';
       </mat-form-field>
 
       <mat-form-field appearance="fill">
+        <mat-label>WhatsApp Number</mat-label>
+        <input matInput formControlName="phone" autocomplete="tel" placeholder="e.g. 918320065658" />
+        <mat-icon matSuffix style="color: var(--color-text-subtle);">phone</mat-icon>
+        <mat-hint>With country code, no + or spaces</mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="fill">
         <mat-label>Password</mat-label>
         <input matInput [type]="showPassword() ? 'text' : 'password'"
                formControlName="password" autocomplete="new-password" />
@@ -81,6 +88,7 @@ export class RegisterComponent {
   readonly form = this.fb.group({
     name: ['', [Validators.required, Validators.minLength(2)]],
     email: ['', [Validators.required, Validators.email]],
+    phone: [''],
     password: ['', [Validators.required, Validators.minLength(6)]],
   });
 
@@ -93,8 +101,8 @@ export class RegisterComponent {
     this.loading.set(true);
     this.errorMsg.set('');
 
-    const { name, email, password } = this.form.value;
-    this.auth.register(name!, email!, password!).subscribe({
+    const { name, email, password, phone } = this.form.value;
+    this.auth.register(name!, email!, password!, phone || '').subscribe({
       next: () => this.router.navigate(['/dashboard']),
       error: (err) => {
         this.errorMsg.set(err.error?.message ?? 'Registration failed');

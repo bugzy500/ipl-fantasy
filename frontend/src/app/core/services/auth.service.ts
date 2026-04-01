@@ -22,9 +22,9 @@ export class AuthService {
   readonly isLoggedIn = computed(() => !!this.token());
   readonly isAdmin = computed(() => this.currentUser()?.role === 'admin');
 
-  register(name: string, email: string, password: string) {
+  register(name: string, email: string, password: string, phone = '') {
     return this.http
-      .post<AuthResponse>(`${environment.apiUrl}/auth/register`, { name, email, password })
+      .post<AuthResponse>(`${environment.apiUrl}/auth/register`, { name, email, password, phone })
       .pipe(tap((res) => this.setSession(res)));
   }
 
