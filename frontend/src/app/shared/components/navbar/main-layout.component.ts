@@ -136,5 +136,6 @@ export class MainLayoutComponent {
     { route: '/dashboard', icon: 'home', label: 'Dashboard' },
     { route: '/matches', icon: 'sports_cricket', label: 'Matches' },
     { route: '/leaderboard', icon: 'leaderboard', label: 'Leaderboard' },
+    { route: '/rules', icon: 'menu_book', label: 'Rules' },
   ];
 }
