@@ -12,6 +12,7 @@ const teamRoutes = require('./routes/teams.routes');
 const scoreRoutes = require('./routes/scores.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
 const awardsRoutes = require('./routes/awards.routes');
+const { startCronJobs } = require('./services/cron.service');
 const cricapiRoutes = require('./routes/cricapi.routes');
 
 const app = express();
@@ -62,6 +63,7 @@ mongoose
     livePoller.restartActivePollers();
 
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    startCronJobs();
   })
   .catch((err) => {
     console.error('❌ MongoDB connection error:', err.message);
