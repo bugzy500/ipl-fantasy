@@ -1,9 +1,5 @@
 const PlayerPerformance = require('../models/PlayerPerformance.model');
-const FantasyTeam = require('../models/FantasyTeam.model');
-const Player = require('../models/Player.model');
-const Match = require('../models/Match.model');
-const { calculateFantasyPoints, applyMultiplier } = require('../services/scoring.service');
-const { calculateAwards } = require('../services/awards.service');
+const { processPerformances } = require('../services/score-processor.service');
 
 /**
  * POST /api/scores/:matchId
@@ -20,59 +16,11 @@ const submitScores = async (req, res) => {
   }
 
   try {
-    const match = await Match.findById(matchId);
-    if (!match) return res.status(404).json({ message: 'Match not found' });
-    if (match.status === 'abandoned') {
-      return res.status(400).json({ message: 'Abandoned matches are voided — no points awarded' });
-    }
-
-    // 1. Calculate and upsert each player's performance + fantasy points
-    const playerPointsMap = {}; // { playerId: fantasyPoints }
-
-    for (const perf of performances) {
-      const player = await Player.findById(perf.playerId);
-      if (!player) continue;
-
-      const fantasyPoints = calculateFantasyPoints(perf, player.role);
-
-      await PlayerPerformance.findOneAndUpdate(
-        { playerId: perf.playerId, matchId },
-        { ...perf, matchId, fantasyPoints },
-        { upsert: true, new: true }
-      );
-
-      playerPointsMap[String(perf.playerId)] = fantasyPoints;
-    }
-
-    // 2. Recalculate totalPoints for every FantasyTeam in this match
-    const teams = await FantasyTeam.find({ matchId });
-
-    for (const team of teams) {
-      let totalPoints = 0;
-
-      for (const playerId of team.players) {
-        const basePoints = playerPointsMap[String(playerId)] ?? 0;
-        const isCaptain = String(team.captain) === String(playerId);
-        const isVC = String(team.viceCaptain) === String(playerId);
-        totalPoints += applyMultiplier(basePoints, isCaptain, isVC);
-      }
-
-      team.totalPoints = Math.round(totalPoints * 10) / 10; // 1 decimal place
-      team.isLocked = true;
-      await team.save();
-    }
-
-    // 3. Mark match as completed
-    match.status = 'completed';
-    await match.save();
-
-    // 4. Calculate awards for this match
-    const playingXIIds = [...(match.playingXI?.team1 || []), ...(match.playingXI?.team2 || [])];
-    await calculateAwards(matchId, playerPointsMap, playingXIIds);
-
-    res.json({ message: 'Scores submitted and fantasy teams updated', teamsUpdated: teams.length });
+    const result = await processPerformances(matchId, performances, { markCompleted: true });
+    res.json({ message: 'Scores submitted and fantasy teams updated', teamsUpdated: result.teamsUpdated });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    const status = err.message.includes('not found') ? 404 : err.message.includes('voided') ? 400 : 500;
+    res.status(status).json({ message: err.message });
   }
 };
 

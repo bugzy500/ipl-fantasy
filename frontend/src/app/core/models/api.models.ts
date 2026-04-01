@@ -43,7 +43,10 @@ export interface Match {
   status: MatchStatus;
   playingXI: { team1: Player[]; team2: Player[] };
   result: string;
+  // CricAPI integration
   cricApiMatchId?: string;
+  lastPolledAt?: string;
+  pollingEnabled?: boolean;
 }
 
 export interface FantasyTeam {

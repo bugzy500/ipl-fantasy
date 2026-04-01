@@ -101,4 +101,37 @@ export class ApiService {
   getSeasonAwards() {
     return this.http.get<Award[]>(`${this.base}/awards/season`);
   }
+
+  // ── CricAPI (admin) ────────────────────────────────────────────────────────
+  linkCricApiMatch(matchId: string, cricApiMatchId: string) {
+    return this.http.post(`${this.base}/cricapi/link/${matchId}`, { cricApiMatchId });
+  }
+
+  startPolling(matchId: string) {
+    return this.http.post(`${this.base}/cricapi/poll/${matchId}/start`, {});
+  }
+
+  stopPolling(matchId: string) {
+    return this.http.post(`${this.base}/cricapi/poll/${matchId}/stop`, {});
+  }
+
+  getPollingStatus() {
+    return this.http.get<{ activePollers: any[]; apiCallsToday: number; dailyLimit: number }>(`${this.base}/cricapi/poll/status`);
+  }
+
+  syncOnce(matchId: string) {
+    return this.http.post(`${this.base}/cricapi/sync-once/${matchId}`, {});
+  }
+
+  previewScorecard(matchId: string) {
+    return this.http.get<any>(`${this.base}/cricapi/preview/${matchId}`);
+  }
+
+  syncPlayerImages() {
+    return this.http.post(`${this.base}/cricapi/sync-images`, {});
+  }
+
+  autoLinkCricApiMatches() {
+    return this.http.post<{ linked: number; results: any[] }>(`${this.base}/cricapi/auto-link`, {});
+  }
 }

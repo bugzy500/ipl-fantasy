@@ -143,6 +143,12 @@ const TEAM_SIZE = 11;
                    [matTooltip]="player.playingStatus === 'playing' ? 'Playing' : player.playingStatus === 'not_playing' ? 'Not Playing' : 'XI not announced'">
               </div>
 
+              <!-- Player image -->
+              <img [src]="player.imageUrl || 'assets/default-player.svg'"
+                   class="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                   [alt]="player.name"
+                   (error)="$any($event.target).src='assets/default-player.svg'" />
+
               <!-- Player info -->
               <div class="flex-1 min-w-0">
                 <div class="font-medium text-sm truncate" style="color: var(--color-text);">

@@ -27,11 +27,17 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
   ],
   template: `
     <div class="space-y-6">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-2">
         <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">Manage Matches</h1>
-        <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
-          {{ showForm() ? 'Cancel' : 'Schedule Match' }}
-        </button>
+        <div class="flex gap-2">
+          <button mat-stroked-button class="text-sm" (click)="autoLinkAll()"
+                  [disabled]="autoLinking()">
+            {{ autoLinking() ? 'Linking...' : 'Auto-Link CricAPI' }}
+          </button>
+          <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
+            {{ showForm() ? 'Cancel' : 'Schedule Match' }}
+          </button>
+        </div>
       </div>
 
       <!-- Schedule match form -->
@@ -113,6 +119,42 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
               </div>
             }
 
+            <!-- CricAPI integration -->
+            <div class="flex items-center gap-2 flex-wrap text-sm"
+                 style="border-top: 1px solid var(--color-border); padding-top: 8px;">
+              @if (!match.cricApiMatchId) {
+                <input #cricIdInput type="text" placeholder="CricAPI Match ID"
+                       class="px-2 py-1 rounded text-xs w-48"
+                       style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);" />
+                <button mat-stroked-button class="text-xs"
+                        (click)="linkCricApi(match._id, cricIdInput.value)">
+                  Link CricAPI
+                </button>
+              } @else {
+                <span class="text-xs" style="color: var(--color-text-muted);">
+                  CricAPI: {{ match.cricApiMatchId.slice(0, 12) }}...
+                </span>
+                @if (match.pollingEnabled) {
+                  <span class="text-xs px-2 py-0.5 rounded-full"
+                        style="background: rgba(34, 197, 94, 0.15); color: var(--color-success);">
+                    Polling Active
+                  </span>
+                  <button mat-stroked-button class="text-xs" color="warn"
+                          (click)="stopCricApiPolling(match._id)">Stop</button>
+                } @else {
+                  <button mat-stroked-button class="text-xs"
+                          (click)="startCricApiPolling(match._id)">Start Polling</button>
+                }
+                <button mat-stroked-button class="text-xs"
+                        (click)="syncCricApiOnce(match._id)">Sync Now</button>
+                @if (match.lastPolledAt) {
+                  <span class="text-xs" style="color: var(--color-text-subtle);">
+                    Last: {{ formatDate(match.lastPolledAt) }}
+                  </span>
+                }
+              }
+            </div>
+
             <!-- Action buttons per status -->
             <div class="flex flex-wrap gap-2">
               @if (match.status === 'upcoming') {
@@ -127,7 +169,7 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
               }
               @if (match.status === 'live') {
                 <a mat-flat-button color="primary" [routerLink]="['/admin/scores', match._id]">
-                  📊 Enter Scores
+                  📊 Enter Scores (Manual)
                 </a>
                 <button mat-stroked-button color="warn" (click)="updateStatus(match._id, 'abandoned')">
                   ⚠ Abandon
@@ -149,6 +191,7 @@ export class AdminMatchesComponent {
   readonly showForm = signal(false);
   readonly saving = signal(false);
   readonly editingDeadlineId = signal<string | null>(null);
+  readonly autoLinking = signal(false);
   private newDeadline = '';
 
   readonly matches = resource({
@@ -231,6 +274,65 @@ export class AdminMatchesComponent {
         this.matches.reload();
       },
       error: () => this.snackBar.open('Failed to update deadline', 'OK', { duration: 2000 }),
+    });
+  }
+
+  // ── CricAPI Controls ─────────────────────────────────────────────────────
+
+  linkCricApi(matchId: string, cricApiMatchId: string) {
+    if (!cricApiMatchId?.trim()) return;
+    this.api.linkCricApiMatch(matchId, cricApiMatchId.trim()).subscribe({
+      next: () => {
+        this.snackBar.open('✅ CricAPI match linked', 'OK', { duration: 2000 });
+        this.matches.reload();
+      },
+      error: (err) => this.snackBar.open(err.error?.message ?? 'Link failed', 'OK', { duration: 2000 }),
+    });
+  }
+
+  startCricApiPolling(matchId: string) {
+    this.api.startPolling(matchId).subscribe({
+      next: () => {
+        this.snackBar.open('✅ Live polling started', 'OK', { duration: 2000 });
+        this.matches.reload();
+      },
+      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to start polling', 'OK', { duration: 2000 }),
+    });
+  }
+
+  stopCricApiPolling(matchId: string) {
+    this.api.stopPolling(matchId).subscribe({
+      next: () => {
+        this.snackBar.open('Polling stopped', 'OK', { duration: 2000 });
+        this.matches.reload();
+      },
+      error: () => this.snackBar.open('Failed to stop polling', 'OK', { duration: 2000 }),
+    });
+  }
+
+  syncCricApiOnce(matchId: string) {
+    this.snackBar.open('Syncing...', '', { duration: 10000 });
+    this.api.syncOnce(matchId).subscribe({
+      next: () => {
+        this.snackBar.open('✅ Sync completed', 'OK', { duration: 2000 });
+        this.matches.reload();
+      },
+      error: (err) => this.snackBar.open(err.error?.message ?? 'Sync failed', 'OK', { duration: 3000 }),
+    });
+  }
+
+  autoLinkAll() {
+    this.autoLinking.set(true);
+    this.api.autoLinkCricApiMatches().subscribe({
+      next: (res) => {
+        this.snackBar.open(`✅ Linked ${res.linked} match(es) from CricAPI`, 'OK', { duration: 3000 });
+        this.matches.reload();
+        this.autoLinking.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err.error?.message ?? 'Auto-link failed', 'OK', { duration: 3000 });
+        this.autoLinking.set(false);
+      },
     });
   }
 }

@@ -12,7 +12,8 @@
       "Bash(grep -o 'bg-gradient-to' dist/frontend/browser/*.css)",
       "Bash(grep -o 'text-2xl' dist/frontend/browser/*.css)",
       "Bash(wc -c dist/frontend/browser/*.css)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep -E \"\\\\.\\(css|js\\)$\")"
     ]
   }
 }
