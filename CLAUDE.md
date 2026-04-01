@@ -75,7 +75,7 @@ ipl-ng/
 
 **Auth flow:** JWT stored in `localStorage`. `AuthService` exposes `token` signal read by `authInterceptor`. First registered user becomes admin automatically.
 
-**Team deadline:** Auto-computed as `scheduledAt + 25 minutes` in the Match Mongoose pre-save hook. Backend rejects team submissions after this time.
+**Team deadline:** Auto-computed as `scheduledAt + 30 minutes` in the Match Mongoose pre-save hook. Backend rejects team submissions after this time.
 
 **Scoring engine:** `backend/src/services/scoring.service.js` — pure function, no side effects. Admin POSTs raw stats → engine calculates → updates all FantasyTeam totalPoints.
 

@@ -11,6 +11,7 @@ import { Player, PlayerRole, MatchSquadResponse, FantasyTeam } from '../../../co
 import { firstValueFrom } from 'rxjs';
 import { TeamBuilderComponent } from './team-builder.component';
 import { LeaderboardTabComponent } from './leaderboard-tab.component';
+import { AllTeamsTabComponent } from './all-teams-tab.component';
 
 @Component({
   selector: 'app-match-detail',
@@ -19,7 +20,7 @@ import { LeaderboardTabComponent } from './leaderboard-tab.component';
     RouterLink,
     MatTabsModule, MatProgressSpinnerModule, MatButtonModule,
     MatIconModule, MatSnackBarModule,
-    TeamBuilderComponent, LeaderboardTabComponent,
+    TeamBuilderComponent, LeaderboardTabComponent, AllTeamsTabComponent,
   ],
   // Route param is bound as input via withComponentInputBinding()
   template: `
@@ -70,6 +71,14 @@ import { LeaderboardTabComponent } from './leaderboard-tab.component';
                 [deadline]="data.match.deadline"
                 [matchStatus]="data.match.status"
               />
+            } @placeholder {
+              <div class="flex justify-center p-8"><mat-spinner /></div>
+            }
+          </mat-tab>
+
+          <mat-tab label="All Teams">
+            @defer (on viewport) {
+              <app-all-teams-tab [matchId]="id()" [deadline]="data.match.deadline" />
             } @placeholder {
               <div class="flex justify-center p-8"><mat-spinner /></div>
             }

@@ -55,6 +55,18 @@ import { firstValueFrom } from 'rxjs';
         </mat-card>
       </div>
 
+      <!-- Live matches -->
+      @if (liveMatches().length > 0) {
+        <div>
+          <h2 class="text-lg font-semibold text-red-600 mb-3">Live Now</h2>
+          <div class="grid md:grid-cols-2 gap-4">
+            @for (match of liveMatches(); track match._id) {
+              <app-match-card [match]="match" />
+            }
+          </div>
+        </div>
+      }
+
       <!-- Upcoming matches -->
       <div>
         <h2 class="text-lg font-semibold text-gray-700 mb-3">Upcoming Matches</h2>
@@ -121,10 +133,13 @@ export class DashboardComponent {
     loader: () => firstValueFrom(this.api.getSeasonLeaderboard()),
   });
 
+  readonly liveMatches = computed<Match[]>(() =>
+    (this.matches.value() ?? []).filter((m) => m.status === 'live')
+  );
+
   readonly upcomingMatches = computed<Match[]>(() => {
     const now = new Date().toISOString();
-    const all = this.matches.value() ?? [];
-    return all
+    return (this.matches.value() ?? [])
       .filter((m) => (m.status === 'upcoming' || m.status === 'toss_done') && m.deadline > now)
       .slice(0, 4);
   });

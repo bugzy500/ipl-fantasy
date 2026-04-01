@@ -28,7 +28,7 @@ const matchSchema = new mongoose.Schema(
 // Auto-compute deadline before save
 matchSchema.pre('save', function () {
   if (this.isModified('scheduledAt') || !this.deadline) {
-    this.deadline = new Date(this.scheduledAt.getTime() + 25 * 60 * 1000);
+    this.deadline = new Date(this.scheduledAt.getTime() + 30 * 60 * 1000);
   }
 });
 
