@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
-import { FantasyTeam, Player } from '../../../core/models/api.models';
+import { FantasyTeam, Player, MatchStatus, PlayerPerformance } from '../../../core/models/api.models';
 
 @Component({
   selector: 'app-all-teams-tab',
@@ -83,6 +83,12 @@ import { FantasyTeam, Player } from '../../../core/models/api.models';
                     <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold"
                           style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
                   }
+                  @if (matchStatus() === 'completed' || matchStatus() === 'live') {
+                    <span class="text-display font-semibold text-xs"
+                          [style.color]="getPlayerPoints(player._id) > 0 ? 'var(--color-accent-hover)' : getPlayerPoints(player._id) < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                      {{ getPlayerPoints(player._id) }} pts
+                    </span>
+                  }
                 </div>
               }
             </div>
@@ -101,6 +107,7 @@ import { FantasyTeam, Player } from '../../../core/models/api.models';
 export class AllTeamsTabComponent implements OnInit {
   readonly matchId = input.required<string>();
   readonly deadline = input.required<string>();
+  readonly matchStatus = input.required<MatchStatus>();
 
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
@@ -108,6 +115,7 @@ export class AllTeamsTabComponent implements OnInit {
   readonly teams = signal<FantasyTeam[]>([]);
   readonly loading = signal(false);
   readonly error = signal('');
+  readonly playerScores = signal<Map<string, number>>(new Map());
 
   readonly deadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
 
@@ -135,6 +143,21 @@ export class AllTeamsTabComponent implements OnInit {
         this.loading.set(false);
       },
     });
+
+    // Load player scores for completed/live matches
+    if (this.matchStatus() === 'completed' || this.matchStatus() === 'live') {
+      this.api.getScores(this.matchId()).subscribe({
+        next: (scores) => {
+          const map = new Map<string, number>();
+          scores.forEach((s: any) => {
+            const pid = typeof s.playerId === 'string' ? s.playerId : s.playerId._id;
+            map.set(pid, s.fantasyPoints);
+          });
+          this.playerScores.set(map);
+        },
+        error: () => {},
+      });
+    }
   }
 
   getOwnerName(team: FantasyTeam): string {
@@ -159,5 +182,9 @@ export class AllTeamsTabComponent implements OnInit {
 
   asPlayers(players: Player[]): Player[] {
     return players;
+  }
+
+  getPlayerPoints(playerId: string): number {
+    return this.playerScores().get(playerId) ?? 0;
   }
 }

@@ -6,7 +6,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
-import { LeaderboardEntry, Award } from '../../core/models/api.models';
+import { LeaderboardEntry, Award, SeasonInsight, MoneyEntry, SeasonInsightsResponse } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
 
 @Component({
@@ -156,6 +156,99 @@ import { firstValueFrom } from 'rxjs';
             <div class="flex justify-center p-8"><mat-spinner /></div>
           }
         </mat-tab>
+
+        <!-- Insights -->
+        <mat-tab label="Insights">
+          @defer (on immediate) {
+            @if (seasonInsights.isLoading()) {
+              <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
+            }
+            <div class="mt-6 space-y-4">
+              <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Season Highlights</h3>
+              @for (insight of seasonInsights.value()?.insights ?? []; track insight.type) {
+                <div class="flex items-center gap-4 p-4 rounded-xl stagger-item fade-up"
+                     style="background: var(--color-surface); border: 1px solid var(--color-border);">
+                  <div class="w-10 h-10 flex items-center justify-center rounded-full"
+                       style="background: var(--color-accent-muted);">
+                    <mat-icon style="font-size: 20px; width: 20px; height: 20px; color: var(--color-accent-hover);">
+                      {{ insight.icon }}
+                    </mat-icon>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-medium text-sm" style="color: var(--color-text);">
+                      {{ insightTitle(insight.type) }}
+                    </div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">
+                      {{ insight.userName }} — {{ insight.label }}
+                    </div>
+                  </div>
+                </div>
+              }
+              @if ((seasonInsights.value()?.insights?.length ?? 0) === 0 && !seasonInsights.isLoading()) {
+                <div class="text-center py-16 card-surface">
+                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">insights</mat-icon>
+                  <p class="mt-3" style="color: var(--color-text-muted);">Play more matches to unlock insights!</p>
+                </div>
+              }
+            </div>
+          } @placeholder {
+            <div class="flex justify-center p-8"><mat-spinner /></div>
+          }
+        </mat-tab>
+
+        <!-- Money -->
+        <mat-tab label="Money">
+          @defer (on immediate) {
+            @if (seasonInsights.isLoading()) {
+              <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
+            }
+            <div class="mt-6 space-y-3">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Virtual Wallet</h3>
+                <span class="text-xs" style="color: var(--color-text-muted);">100 rs pot per match</span>
+              </div>
+              @for (entry of seasonInsights.value()?.money ?? []; track entry.userId; let i = $index) {
+                <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+                     [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
+                     style="border: 1px solid var(--color-border);">
+                  <span class="w-8 text-center text-display font-bold"
+                        [style.color]="rankColor(i)">
+                    {{ i + 1 }}
+                  </span>
+                  <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                    account_balance_wallet
+                  </mat-icon>
+                  <div class="flex-1">
+                    <div class="font-medium text-sm" style="color: var(--color-text);">
+                      {{ entry.userName }}
+                      @if (entry.userId === auth.currentUser()?.id) {
+                        <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
+                      }
+                    </div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">
+                      Invested: {{ entry.invested }} · Won: {{ entry.won }}
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-display font-bold text-lg"
+                         [style.color]="entry.net > 0 ? 'var(--color-success)' : entry.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                      {{ entry.net > 0 ? '+' : '' }}{{ entry.net }}
+                    </div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">net</div>
+                  </div>
+                </div>
+              }
+              @if ((seasonInsights.value()?.money?.length ?? 0) === 0 && !seasonInsights.isLoading()) {
+                <div class="text-center py-16 card-surface">
+                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">payments</mat-icon>
+                  <p class="mt-3" style="color: var(--color-text-muted);">No completed matches yet.</p>
+                </div>
+              }
+            </div>
+          } @placeholder {
+            <div class="flex justify-center p-8"><mat-spinner /></div>
+          }
+        </mat-tab>
       </mat-tab-group>
     </div>
   `,
@@ -179,6 +272,10 @@ export class LeaderboardComponent {
 
   readonly seasonAwards = resource({
     loader: () => firstValueFrom(this.api.getSeasonAwards()),
+  });
+
+  readonly seasonInsights = resource({
+    loader: () => firstValueFrom(this.api.getSeasonInsights()),
   });
 
   readonly matchLeaderboard = resource({
@@ -255,5 +352,15 @@ export class LeaderboardComponent {
       return `${m.team1} vs ${m.team2}`;
     }
     return '';
+  }
+
+  insightTitle(type: string): string {
+    const map: Record<string, string> = {
+      best_captain: 'Best Captain Picker',
+      most_consistent: 'Most Consistent',
+      biggest_gainer: 'Highest Single Match',
+      best_predictor: 'Best Predictor',
+    };
+    return map[type] ?? type;
   }
 }

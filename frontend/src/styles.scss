@@ -357,3 +357,37 @@ h1, h2, h3, h4 {
   background: var(--color-text-subtle);
   border-radius: 3px;
 }
+
+// ============================================
+// Prediction buttons
+// ============================================
+
+.prediction-btn {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 160ms var(--ease-out);
+  min-height: 44px;
+}
+.prediction-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+.prediction-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.prediction-btn--selected {
+  background: var(--color-accent-muted) !important;
+  border-color: var(--color-accent) !important;
+  color: var(--color-accent-hover) !important;
+}
+.prediction-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

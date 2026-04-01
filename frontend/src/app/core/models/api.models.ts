@@ -107,3 +107,34 @@ export interface MatchSquadResponse {
   match: Pick<Match, '_id' | 'team1' | 'team2' | 'deadline' | 'status'>;
   players: Player[];
 }
+
+export interface Prediction {
+  _id: string;
+  userId: string | Pick<User, 'id' | 'name'>;
+  matchId: string;
+  predictedWinner: Franchise;
+  isCorrect: boolean | null;
+  bonusPoints: number;
+}
+
+export interface SeasonInsight {
+  type: string;
+  icon: string;
+  userId: string;
+  userName: string;
+  value: number;
+  label: string;
+}
+
+export interface MoneyEntry {
+  userId: string;
+  userName: string;
+  invested: number;
+  won: number;
+  net: number;
+}
+
+export interface SeasonInsightsResponse {
+  insights: SeasonInsight[];
+  money: MoneyEntry[];
+}
