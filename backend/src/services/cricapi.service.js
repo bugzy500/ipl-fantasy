@@ -77,6 +77,119 @@ async function getMatchInfo(cricApiMatchId) {
   return apiGet('match_info', { id: cricApiMatchId });
 }
 
+/**
+ * Fetch current/recent matches, optionally filtered by offset (pagination).
+ * CricAPI returns ~10 matches per page.
+ */
+async function getCurrentMatches(offset = 0) {
+  return apiGet('currentMatches', { offset: String(offset) });
+}
+
+/**
+ * Search matches by series. CricAPI v1/series_info returns matches in a series.
+ */
+async function getSeriesMatches(seriesId) {
+  return apiGet('series_info', { id: seriesId });
+}
+
+// ── Team Name Mapping ─────────────────────────────────────────────────────────
+
+const TEAM_NAME_TO_ABBR = {
+  'chennai super kings': 'CSK',
+  'mumbai indians': 'MI',
+  'royal challengers bengaluru': 'RCB',
+  'royal challengers bangalore': 'RCB',
+  'kolkata knight riders': 'KKR',
+  'sunrisers hyderabad': 'SRH',
+  'rajasthan royals': 'RR',
+  'punjab kings': 'PBKS',
+  'delhi capitals': 'DC',
+  'gujarat titans': 'GT',
+  'lucknow super giants': 'LSG',
+};
+
+/**
+ * Convert a CricAPI full team name to our local abbreviation.
+ * e.g., "Chennai Super Kings" → "CSK"
+ */
+function teamNameToAbbr(fullName) {
+  if (!fullName) return null;
+  return TEAM_NAME_TO_ABBR[fullName.toLowerCase().trim()] || null;
+}
+
+/**
+ * Try to auto-match CricAPI matches to local unlinked matches.
+ * Matches by: both team abbreviations match AND same date (IST).
+ * Returns array of { localMatchId, cricApiMatchId, team1, team2, date }.
+ */
+async function autoLinkMatches() {
+  const Match = require('../models/Match.model');
+
+  // Get local matches that don't have a CricAPI ID yet
+  const unlinked = await Match.find({ cricApiMatchId: '' }).sort({ scheduledAt: 1 });
+  if (unlinked.length === 0) return { linked: 0, results: [] };
+
+  // Fetch current matches from CricAPI (multiple pages to catch more)
+  let cricApiMatches = [];
+  for (let offset = 0; offset <= 10; offset += 10) {
+    try {
+      const res = await getCurrentMatches(offset);
+      if (res.data && Array.isArray(res.data)) {
+        cricApiMatches.push(...res.data);
+      }
+      // Stop if less than a full page
+      if (!res.data || res.data.length < 10) break;
+    } catch (err) {
+      if (err.message.includes('RATE_LIMITED')) break;
+      console.log(`[AutoLink] Page offset ${offset} failed:`, err.message);
+      break;
+    }
+  }
+
+  // Filter to IPL matches only (name contains "IPL" or "Indian Premier League")
+  const iplMatches = cricApiMatches.filter((m) => {
+    const name = (m.name || m.series || '').toLowerCase();
+    return name.includes('ipl') || name.includes('indian premier league');
+  });
+
+  const results = [];
+  for (const cricMatch of iplMatches) {
+    // Resolve CricAPI team names to abbreviations
+    const t1Abbr = teamNameToAbbr(cricMatch.teamInfo?.[0]?.name || cricMatch.teams?.[0]);
+    const t2Abbr = teamNameToAbbr(cricMatch.teamInfo?.[1]?.name || cricMatch.teams?.[1]);
+    if (!t1Abbr || !t2Abbr) continue;
+
+    // CricAPI match date
+    const cricDate = cricMatch.date ? new Date(cricMatch.date) : null;
+    const cricDateStr = cricDate ? cricDate.toISOString().slice(0, 10) : null;
+
+    // Find matching local match (same teams, same date)
+    for (const local of unlinked) {
+      if (local.cricApiMatchId) continue; // already linked in this batch
+      const localDateStr = local.scheduledAt.toISOString().slice(0, 10);
+
+      const teamsMatch =
+        (local.team1 === t1Abbr && local.team2 === t2Abbr) ||
+        (local.team1 === t2Abbr && local.team2 === t1Abbr);
+
+      if (teamsMatch && localDateStr === cricDateStr) {
+        local.cricApiMatchId = cricMatch.id;
+        await local.save();
+
+        results.push({
+          localMatchId: local._id,
+          cricApiMatchId: cricMatch.id,
+          teams: `${local.team1} vs ${local.team2}`,
+          date: localDateStr,
+        });
+        break; // move to next CricAPI match
+      }
+    }
+  }
+
+  return { linked: results.length, results };
+}
+
 // ── Overs Conversion ─────────────────────────────────────────────────────────
 
 /**
@@ -270,9 +383,13 @@ function mapScorecardToPerformances(scorecardData) {
 module.exports = {
   getMatchScorecard,
   getMatchInfo,
+  getCurrentMatches,
+  getSeriesMatches,
   mapScorecardToPerformances,
   getUsageToday,
   canMakeRequest,
   convertOvers,
   parseDismissal,
+  teamNameToAbbr,
+  autoLinkMatches,
 };

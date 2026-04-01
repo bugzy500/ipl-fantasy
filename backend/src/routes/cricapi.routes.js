@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const {
   linkMatch, startPoll, stopPoll, getPollingStatus,
-  syncOnce, previewScorecard, syncImages,
+  syncOnce, previewScorecard, syncImages, autoLink,
 } = require('../controllers/cricapi.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireAdmin } = require('../middleware/admin.middleware');
@@ -19,5 +19,6 @@ router.get('/poll/status', getPollingStatus);
 router.post('/sync-once/:matchId', syncOnce);
 router.get('/preview/:matchId', previewScorecard);
 router.post('/sync-images', syncImages);
+router.post('/auto-link', autoLink);
 
 module.exports = router;
