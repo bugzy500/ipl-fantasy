@@ -213,7 +213,8 @@ export class TeamBuilderComponent implements OnInit {
 
     const rc = this.roleCounts();
     if (rc.WK < 1 || rc.WK > 4) return 'Need 1–4 Wicket-Keepers';
-    if (rc.BAT < 3 || rc.BAT > 6) return 'Need 3–6 Batters';
+    const batTotal = rc.WK + rc.BAT; // WK counts as a batsman
+    if (batTotal < 3 || batTotal > 6) return 'Need 3–6 Batters (WK included)';
     if (rc.AR < 1 || rc.AR > 4) return 'Need 1–4 All-Rounders';
     if (rc.BOWL < 3 || rc.BOWL > 6) return 'Need 3–6 Bowlers';
 
