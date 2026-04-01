@@ -40,6 +40,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/leaderboard/leaderboard.component').then((m) => m.LeaderboardComponent),
       },
       {
+        path: 'rules',
+        loadComponent: () => import('./features/rules/rules.component').then((m) => m.RulesComponent),
+      },
+      {
         path: 'admin',
         canActivate: [adminGuard],
         children: [

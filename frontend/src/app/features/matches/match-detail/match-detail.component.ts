@@ -12,6 +12,7 @@ import { firstValueFrom } from 'rxjs';
 import { TeamBuilderComponent } from './team-builder.component';
 import { LeaderboardTabComponent } from './leaderboard-tab.component';
 import { AllTeamsTabComponent } from './all-teams-tab.component';
+import { PlayerScoresTabComponent } from './player-scores-tab.component';
 
 @Component({
   selector: 'app-match-detail',
@@ -20,7 +21,7 @@ import { AllTeamsTabComponent } from './all-teams-tab.component';
     RouterLink,
     MatTabsModule, MatProgressSpinnerModule, MatButtonModule,
     MatIconModule, MatSnackBarModule,
-    TeamBuilderComponent, LeaderboardTabComponent, AllTeamsTabComponent,
+    TeamBuilderComponent, LeaderboardTabComponent, AllTeamsTabComponent, PlayerScoresTabComponent,
   ],
   template: `
     @if (squadData.isLoading()) {
@@ -102,6 +103,14 @@ import { AllTeamsTabComponent } from './all-teams-tab.component';
           <mat-tab label="Leaderboard">
             @defer (on viewport) {
               <app-leaderboard-tab [matchId]="id()" [matchStatus]="data.match.status" />
+            } @placeholder {
+              <div class="flex justify-center p-8"><mat-spinner /></div>
+            }
+          </mat-tab>
+
+          <mat-tab label="Player Scores">
+            @defer (on viewport) {
+              <app-player-scores-tab [matchId]="id()" [matchStatus]="data.match.status" />
             } @placeholder {
               <div class="flex justify-center p-8"><mat-spinner /></div>
             }
