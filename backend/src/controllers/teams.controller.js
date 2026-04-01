@@ -7,7 +7,7 @@ const MAX_FROM_ONE_FRANCHISE = 7;
 const TOTAL_BUDGET = 100;
 
 // Validate team composition rules from REQUIREMENTS.MD Section 2
-async function validateTeam(playerIds, captainId, viceCaptainId) {
+async function validateTeam(playerIds, captainId, viceCaptainId, match) {
   if (playerIds.length !== TEAM_SIZE) {
     return `Team must have exactly ${TEAM_SIZE} players`;
   }
@@ -45,6 +45,16 @@ async function validateTeam(playerIds, captainId, viceCaptainId) {
     }
   }
 
+  // Validate players belong to the match's franchises
+  if (match) {
+    const validFranchises = [match.team1, match.team2];
+    for (const p of players) {
+      if (!validFranchises.includes(p.franchise)) {
+        return `${p.name} (${p.franchise}) is not playing in this match`;
+      }
+    }
+  }
+
   return null; // null = valid
 }
 
@@ -65,7 +75,13 @@ const upsertTeam = async (req, res) => {
       return res.status(403).json({ message: 'Team submission deadline has passed' });
     }
 
-    const validationError = await validateTeam(players, captain, viceCaptain);
+    // Check if team is locked (scores already submitted)
+    const existingTeam = await FantasyTeam.findOne({ userId: req.user._id, matchId });
+    if (existingTeam?.isLocked) {
+      return res.status(403).json({ message: 'Team is locked — scores have already been submitted' });
+    }
+
+    const validationError = await validateTeam(players, captain, viceCaptain, match);
     if (validationError) return res.status(400).json({ message: validationError });
 
     const team = await FantasyTeam.findOneAndUpdate(

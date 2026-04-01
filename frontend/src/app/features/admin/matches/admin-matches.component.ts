@@ -28,22 +28,21 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
   template: `
     <div class="space-y-6">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-gray-800">Manage Matches</h1>
-        <button mat-flat-button color="primary" (click)="showForm.update(v => !v)">
-          <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
+        <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">Manage Matches</h1>
+        <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
           {{ showForm() ? 'Cancel' : 'Schedule Match' }}
         </button>
       </div>
 
       <!-- Schedule match form -->
       @if (showForm()) {
-        <div class="bg-gray-50 rounded-xl p-4 border">
-          <h3 class="font-semibold mb-4">Schedule New Match</h3>
-          <p class="text-sm text-gray-500 mb-4">
+        <div class="card-surface p-5" style="border: 1px solid var(--color-border);">
+          <h3 class="text-display font-semibold mb-4" style="color: var(--color-text);">Schedule New Match</h3>
+          <p class="text-sm mb-4" style="color: var(--color-text-muted);">
             💡 For weekend double-headers, schedule two separate matches with 3:00 PM and 7:00 PM start times (IST).
           </p>
           <form [formGroup]="matchForm" (ngSubmit)="createMatch()" class="grid md:grid-cols-2 gap-4">
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Team 1</mat-label>
               <mat-select formControlName="team1">
                 @for (f of franchises; track f) {
@@ -51,7 +50,7 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Team 2</mat-label>
               <mat-select formControlName="team2">
                 @for (f of franchises; track f) {
@@ -59,12 +58,12 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Match Date & Time (IST)</mat-label>
               <input matInput type="datetime-local" formControlName="scheduledAt" />
-              <mat-hint>Deadline auto-sets to 25 mins after this</mat-hint>
+              <mat-hint>Deadline auto-sets to 30 mins after this</mat-hint>
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Venue (optional)</mat-label>
               <input matInput formControlName="venue" />
             </mat-form-field>
@@ -84,18 +83,18 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
       }
       <div class="space-y-3">
         @for (match of matches.value() ?? []; track match._id) {
-          <div class="border rounded-xl p-4 space-y-3">
+          <div class="card-surface p-4 space-y-3" style="border: 1px solid var(--color-border);">
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <span class="font-bold">{{ match.team1 }} vs {{ match.team2 }}</span>
-                <span class="text-sm text-gray-500 ml-2">{{ formatDate(match.scheduledAt) }}</span>
+                <span class="font-semibold" style="color: var(--color-text);">{{ match.team1 }} vs {{ match.team2 }}</span>
+                <span class="text-sm ml-2" style="color: var(--color-text-muted);">{{ formatDate(match.scheduledAt) }}</span>
               </div>
               <mat-chip>{{ match.status }}</mat-chip>
             </div>
 
             <!-- Deadline display + override -->
-            <div class="flex items-center gap-2 text-sm text-gray-500">
-              <span>🔒 Deadline: {{ formatDate(match.deadline) }}</span>
+            <div class="flex items-center gap-2 text-sm" style="color: var(--color-text-muted);">
+              <span>Deadline: {{ formatDate(match.deadline) }}</span>
               @if (match.status === 'upcoming' || match.status === 'toss_done' || match.status === 'live') {
                 <button mat-stroked-button class="text-xs" (click)="toggleDeadlineEdit(match._id)">
                   Edit
@@ -104,7 +103,7 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
             </div>
             @if (editingDeadlineId() === match._id) {
               <div class="flex items-center gap-2">
-                <mat-form-field appearance="outline" class="text-sm">
+                <mat-form-field appearance="fill" class="text-sm">
                   <mat-label>New Deadline (IST)</mat-label>
                   <input matInput type="datetime-local" [value]="toLocalDatetime(match.deadline)"
                          (change)="onDeadlineChange($event)" />

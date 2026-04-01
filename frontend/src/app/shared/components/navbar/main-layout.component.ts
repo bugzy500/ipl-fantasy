@@ -19,65 +19,78 @@ import { AuthService } from '../../../core/services/auth.service';
   template: `
     <mat-sidenav-container class="h-full">
       <!-- Side nav (mobile) -->
-      <mat-sidenav #sidenav mode="over" class="w-64 p-4">
-        <mat-nav-list>
-          <a mat-list-item routerLink="/dashboard" routerLinkActive="bg-violet-100"
-             (click)="sidenav.close()">
-            <mat-icon matListItemIcon>home</mat-icon>
-            <span matListItemTitle>Dashboard</span>
-          </a>
-          <a mat-list-item routerLink="/matches" routerLinkActive="bg-violet-100"
-             (click)="sidenav.close()">
-            <mat-icon matListItemIcon>sports_cricket</mat-icon>
-            <span matListItemTitle>Matches</span>
-          </a>
-          <a mat-list-item routerLink="/leaderboard" routerLinkActive="bg-violet-100"
-             (click)="sidenav.close()">
-            <mat-icon matListItemIcon>leaderboard</mat-icon>
-            <span matListItemTitle>Leaderboard</span>
-          </a>
-          @if (auth.isAdmin()) {
-            <a mat-list-item routerLink="/admin" routerLinkActive="bg-violet-100"
-               (click)="sidenav.close()">
-              <mat-icon matListItemIcon>admin_panel_settings</mat-icon>
-              <span matListItemTitle>Admin</span>
+      <mat-sidenav #sidenav mode="over" class="w-64"
+                   style="background: var(--color-surface); border-right: 1px solid var(--color-border);">
+        <div class="p-6 pb-4">
+          <span class="text-display text-lg" style="color: var(--color-text);">IPL Fantasy</span>
+          <p class="text-xs mt-1" style="color: var(--color-text-muted);">2026 Season</p>
+        </div>
+        <nav class="flex flex-col gap-1 px-3">
+          @for (item of navItems; track item.route) {
+            <a [routerLink]="item.route" routerLinkActive="nav-active"
+               (click)="sidenav.close()"
+               class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all"
+               style="color: var(--color-text-muted); min-height: 44px;">
+              <mat-icon class="text-[20px]">{{ item.icon }}</mat-icon>
+              <span>{{ item.label }}</span>
             </a>
           }
-        </mat-nav-list>
+          @if (auth.isAdmin()) {
+            <a routerLink="/admin" routerLinkActive="nav-active"
+               (click)="sidenav.close()"
+               class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all"
+               style="color: var(--color-text-muted); min-height: 44px;">
+              <mat-icon class="text-[20px]">admin_panel_settings</mat-icon>
+              <span>Admin</span>
+            </a>
+          }
+        </nav>
       </mat-sidenav>
 
       <!-- Main content -->
-      <mat-sidenav-content>
+      <mat-sidenav-content style="background: var(--color-base);">
         <!-- Top navbar -->
-        <mat-toolbar class="sticky top-0 z-50 shadow-sm" color="primary">
-          <button mat-icon-button class="md:hidden" (click)="sidenav.toggle()">
+        <header class="sticky top-0 z-50 flex items-center gap-3 px-4 md:px-6 h-16"
+                style="background: rgba(13, 11, 26, 0.85); backdrop-filter: blur(20px) saturate(1.5);
+                       -webkit-backdrop-filter: blur(20px) saturate(1.5);
+                       border-bottom: 1px solid var(--color-border);">
+          <button mat-icon-button class="md:hidden" (click)="sidenav.toggle()"
+                  style="color: var(--color-text-muted);">
             <mat-icon>menu</mat-icon>
           </button>
 
-          <span class="font-bold text-lg tracking-wide">🏏 IPL Fantasy 2026</span>
+          <span class="text-display font-semibold text-base tracking-tight"
+                style="color: var(--color-text);">
+            IPL Fantasy 2026
+          </span>
 
           <!-- Desktop nav links -->
-          <nav class="hidden md:flex gap-2 ml-6">
-            <a mat-button routerLink="/dashboard" routerLinkActive="opacity-100"
-               class="opacity-80">Dashboard</a>
-            <a mat-button routerLink="/matches" routerLinkActive="opacity-100"
-               class="opacity-80">Matches</a>
-            <a mat-button routerLink="/leaderboard" routerLinkActive="opacity-100"
-               class="opacity-80">Leaderboard</a>
+          <nav class="hidden md:flex gap-1 ml-6">
+            @for (item of navItems; track item.route) {
+              <a [routerLink]="item.route" routerLinkActive="nav-link-active"
+                 class="nav-link px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                 style="color: var(--color-text-muted);">
+                {{ item.label }}
+              </a>
+            }
             @if (auth.isAdmin()) {
-              <a mat-button routerLink="/admin" routerLinkActive="opacity-100"
-                 class="opacity-80">Admin</a>
+              <a routerLink="/admin" routerLinkActive="nav-link-active"
+                 class="nav-link px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                 style="color: var(--color-text-muted);">
+                Admin
+              </a>
             }
           </nav>
 
           <span class="flex-1"></span>
 
           <!-- User menu -->
-          <button mat-icon-button [matMenuTriggerFor]="userMenu">
+          <button mat-icon-button [matMenuTriggerFor]="userMenu"
+                  style="color: var(--color-text-muted);">
             <mat-icon>account_circle</mat-icon>
           </button>
           <mat-menu #userMenu="matMenu">
-            <div class="px-4 py-2 text-sm font-medium text-gray-700">
+            <div class="px-4 py-2 text-sm font-medium" style="color: var(--color-text);">
               {{ auth.currentUser()?.name }}
             </div>
             <mat-divider></mat-divider>
@@ -85,7 +98,7 @@ import { AuthService } from '../../../core/services/auth.service';
               <mat-icon>logout</mat-icon> Logout
             </button>
           </mat-menu>
-        </mat-toolbar>
+        </header>
 
         <!-- Page content -->
         <main class="p-4 md:p-6 max-w-6xl mx-auto">
@@ -94,7 +107,34 @@ import { AuthService } from '../../../core/services/auth.service';
       </mat-sidenav-content>
     </mat-sidenav-container>
   `,
+  styles: [`
+    .nav-item:hover {
+      background: var(--color-accent-muted);
+      color: var(--color-text) !important;
+    }
+    .nav-active {
+      background: var(--color-accent-muted) !important;
+      color: var(--color-text) !important;
+      font-weight: 500;
+    }
+    .nav-active mat-icon { color: var(--color-accent) !important; }
+
+    .nav-link:hover {
+      background: var(--color-accent-muted);
+      color: var(--color-text) !important;
+    }
+    .nav-link-active {
+      background: var(--color-accent-muted) !important;
+      color: var(--color-text) !important;
+    }
+  `],
 })
 export class MainLayoutComponent {
   readonly auth = inject(AuthService);
+
+  readonly navItems = [
+    { route: '/dashboard', icon: 'home', label: 'Dashboard' },
+    { route: '/matches', icon: 'sports_cricket', label: 'Matches' },
+    { route: '/leaderboard', icon: 'leaderboard', label: 'Leaderboard' },
+  ];
 }

@@ -8,7 +8,7 @@ const matchSchema = new mongoose.Schema(
     // scheduledAt = real-life match start time (IST).
     // Supports weekday 7 PM and weekend 3 PM / 7 PM slots.
     scheduledAt: { type: Date, required: true },
-    // Deadline auto-set to scheduledAt + 25 minutes
+    // Deadline auto-set to scheduledAt + 30 minutes
     deadline: { type: Date },
     status: {
       type: String,

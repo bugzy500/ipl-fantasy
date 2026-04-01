@@ -11,6 +11,7 @@ const matchRoutes = require('./routes/matches.routes');
 const teamRoutes = require('./routes/teams.routes');
 const scoreRoutes = require('./routes/scores.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
+const awardsRoutes = require('./routes/awards.routes');
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use('/api/matches', matchRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/scores', scoreRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/awards', awardsRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Route not found' }));

@@ -1,35 +1,359 @@
 @use '@angular/material' as mat;
 
+// ============================================
+// Midnight Purple — IPL Fantasy 2026 Theme
+// ============================================
+
+:root {
+  // Core palette
+  --color-base: #0D0B1A;
+  --color-surface: #16132B;
+  --color-surface-elevated: #1F1B3D;
+  --color-accent: #7C3AED;
+  --color-accent-hover: #8B5CF6;
+  --color-accent-muted: rgba(124, 58, 237, 0.12);
+  --color-text: #E8E4F1;
+  --color-text-muted: #7B6F8D;
+  --color-text-subtle: #4A3D5F;
+  --color-border: rgba(232, 228, 241, 0.06);
+  --color-border-hover: rgba(232, 228, 241, 0.12);
+  --color-danger: #E8534A;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+
+  // Shadows
+  --shadow-sm: 0 1px 3px rgba(124, 58, 237, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 40px rgba(124, 58, 237, 0.1);
+
+  // Typography
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+
+  // Easing
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
+  // Spacing (8px grid)
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  // Radii
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+}
+
 html {
   height: 100%;
+  color-scheme: dark;
   @include mat.theme(
     (
       color: (
+        theme-type: dark,
         primary: mat.$violet-palette,
         tertiary: mat.$orange-palette,
       ),
-      typography: Roboto,
+      typography: Inter,
       density: 0,
     )
   );
 }
 
 body {
-  color-scheme: light;
-  background-color: var(--mat-sys-surface);
-  color: var(--mat-sys-on-surface);
-  font: var(--mat-sys-body-medium);
+  background-color: var(--color-base);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
   margin: 0;
   height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* IPL theme custom CSS variables */
-:root {
-  --ipl-primary: #6c3fc8;
-  --ipl-accent: #ff6d00;
-  --ipl-surface: #f5f5f5;
+// ============================================
+// Typography
+// ============================================
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  margin: 0;
 }
 
-/* Utility: hide scrollbar but allow scroll */
+// ============================================
+// Material overrides for dark theme
+// ============================================
+
+.mat-mdc-card {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: none !important;
+}
+
+.mat-mdc-tab-group {
+  --mdc-tab-indicator-active-indicator-color: var(--color-accent);
+  --mat-tab-header-active-label-text-color: var(--color-text);
+  --mat-tab-header-inactive-label-text-color: var(--color-text-muted);
+}
+
+.mat-mdc-dialog-container .mdc-dialog__surface {
+  background: var(--color-surface) !important;
+  border-radius: var(--radius-lg) !important;
+}
+
+.mat-mdc-snack-bar-container {
+  --mdc-snackbar-container-color: var(--color-surface-elevated);
+  --mdc-snackbar-supporting-text-color: var(--color-text);
+}
+
+.mat-mdc-form-field {
+  --mdc-filled-text-field-container-color: var(--color-surface);
+  --mdc-filled-text-field-label-text-color: var(--color-text-muted);
+  --mdc-filled-text-field-input-text-color: var(--color-text);
+  --mdc-filled-text-field-focus-label-text-color: var(--color-accent);
+  --mdc-filled-text-field-focus-active-indicator-color: var(--color-accent);
+}
+
+.mat-mdc-select {
+  --mat-select-trigger-text-color: var(--color-text);
+  --mat-select-panel-background-color: var(--color-surface-elevated);
+}
+
+.mat-mdc-option {
+  --mat-option-label-text-color: var(--color-text);
+  --mat-option-hover-state-layer-color: var(--color-accent-muted);
+  --mat-option-selected-state-layer-color: var(--color-accent-muted);
+}
+
+.mdc-list-item {
+  --mdc-list-list-item-label-text-color: var(--color-text);
+}
+
+.mat-expansion-panel {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+// ============================================
+// Button styles
+// ============================================
+
+.btn-primary {
+  background: var(--color-accent) !important;
+  color: white !important;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 500;
+  padding: 10px 24px;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background 200ms var(--ease-out);
+  min-height: 44px;
+
+  &:hover { background: var(--color-accent-hover) !important; }
+  &:active { transform: scale(0.97); }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.btn-outline {
+  background: transparent !important;
+  color: var(--color-accent) !important;
+  border: 1px solid var(--color-accent) !important;
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 500;
+  padding: 10px 24px;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background 200ms var(--ease-out);
+  min-height: 44px;
+
+  &:hover { background: var(--color-accent-muted) !important; }
+  &:active { transform: scale(0.97); }
+}
+
+.btn-ghost {
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 24px;
+  cursor: pointer;
+  transition: color 200ms var(--ease-out), background 200ms var(--ease-out);
+  min-height: 44px;
+
+  &:hover {
+    color: var(--color-text) !important;
+    background: var(--color-accent-muted) !important;
+  }
+  &:active { transform: scale(0.97); }
+}
+
+// ============================================
+// Card styles (borderless, spacing separation)
+// ============================================
+
+.card-surface {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.card-elevated {
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+// ============================================
+// Status chips
+// ============================================
+
+.status-live {
+  background: rgba(232, 83, 74, 0.15);
+  color: #E8534A;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-upcoming {
+  background: var(--color-accent-muted);
+  color: var(--color-accent-hover);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-completed {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--color-success);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+// ============================================
+// Animations
+// ============================================
+
+// Fade up entrance
+.fade-up {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: fadeUp 0.5s var(--ease-out) forwards;
+}
+
+@keyframes fadeUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+// Stagger children
+@for $i from 1 through 20 {
+  .stagger-item:nth-child(#{$i}) {
+    animation-delay: #{($i - 1) * 0.06}s;
+  }
+}
+
+// Pulse glow for live
+.pulse-live {
+  animation: pulseGlow 2s ease infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 83, 74, 0.3); }
+  50% { box-shadow: 0 0 12px 4px rgba(232, 83, 74, 0.15); }
+}
+
+// Live dot
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #E8534A;
+  animation: livePulse 1.5s ease infinite;
+  display: inline-block;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+// ============================================
+// Utility classes
+// ============================================
+
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.text-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.text-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+// Film grain texture
+.grain::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+}
+
+// Reduced motion
+@media (prefers-reduced-motion: reduce) {
+  .fade-up,
+  .stagger-item,
+  .pulse-live,
+  .live-dot {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+// Scrollbar styling
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-subtle);
+  border-radius: 3px;
+}

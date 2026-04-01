@@ -1,7 +1,6 @@
 import { Component, inject, input, signal, computed, OnInit } from '@angular/core';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -10,57 +9,75 @@ import { FantasyTeam, Player } from '../../../core/models/api.models';
 @Component({
   selector: 'app-all-teams-tab',
   standalone: true,
-  imports: [MatProgressSpinnerModule, MatIconModule, MatChipsModule, MatExpansionModule],
+  imports: [MatProgressSpinnerModule, MatIconModule, MatExpansionModule],
   template: `
     <div class="p-4 space-y-4">
-      <h3 class="font-semibold text-gray-700">All Teams</h3>
+      <h3 class="text-display font-semibold" style="color: var(--color-text);">All Teams</h3>
 
       @if (!deadlinePassed()) {
-        <div class="text-center py-12 text-gray-400">
-          <mat-icon class="text-5xl">lock</mat-icon>
-          <p class="mt-2">Teams will be visible after the deadline passes.</p>
+        <div class="text-center py-12 card-surface">
+          <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">
+            lock
+          </mat-icon>
+          <p class="mt-3" style="color: var(--color-text-muted);">
+            Teams will be visible after the deadline passes.
+          </p>
         </div>
       } @else {
         @if (loading()) {
           <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
         }
         @if (error()) {
-          <p class="text-red-500 text-center">{{ error() }}</p>
+          <p class="text-center" style="color: var(--color-danger);">{{ error() }}</p>
         }
 
         @for (team of teams(); track team._id) {
-          <mat-expansion-panel [expanded]="isMyTeam(team)">
+          <mat-expansion-panel [expanded]="isMyTeam(team)" class="stagger-item fade-up">
             <mat-expansion-panel-header>
-              <mat-panel-title class="font-medium flex items-center gap-2">
-                <mat-icon class="text-gray-400 text-sm">person</mat-icon>
-                {{ getOwnerName(team) }}
-                @if (isMyTeam(team)) {
-                  <mat-chip class="text-xs">You</mat-chip>
-                }
+              <mat-panel-title>
+                <div class="flex items-center gap-2 font-medium text-sm"
+                     style="color: var(--color-text);">
+                  <mat-icon style="font-size: 18px; width: 18px; height: 18px; color: var(--color-text-subtle);">
+                    person
+                  </mat-icon>
+                  {{ getOwnerName(team) }}
+                  @if (isMyTeam(team)) {
+                    <span class="text-xs px-2 py-0.5 rounded-full"
+                          style="background: var(--color-accent-muted); color: var(--color-accent);">
+                      You
+                    </span>
+                  }
+                </div>
               </mat-panel-title>
-              <mat-panel-description class="font-bold text-violet-700">
-                {{ team.totalPoints }} pts
+              <mat-panel-description>
+                <span class="text-display font-bold" style="color: var(--color-accent-hover);">
+                  {{ team.totalPoints }} pts
+                </span>
               </mat-panel-description>
             </mat-expansion-panel-header>
 
-            <div class="space-y-2 py-2">
+            <div class="space-y-1.5 py-2">
               @for (player of asPlayers(team.players); track player._id) {
-                <div class="flex items-center gap-3 px-2 py-1 rounded-lg"
-                     [class.bg-yellow-50]="isCaptain(team, player)"
-                     [class.bg-orange-50]="isVC(team, player)">
+                @let isCap = isCaptain(team, player);
+                @let isVc = isVC(team, player);
+                <div class="flex items-center gap-3 px-3 py-2 rounded-lg"
+                     [style.background]="isCap ? 'rgba(245, 158, 11, 0.1)' : isVc ? 'rgba(217, 119, 6, 0.06)' : 'transparent'">
                   <div class="w-2 h-2 rounded-full flex-shrink-0"
-                       [class.bg-blue-500]="player.role === 'BAT'"
-                       [class.bg-green-500]="player.role === 'AR'"
-                       [class.bg-red-500]="player.role === 'BOWL'"
-                       [class.bg-yellow-500]="player.role === 'WK'">
+                       [style.background]="roleColor(player.role)">
                   </div>
-                  <span class="flex-1 text-sm font-medium">{{ player.name }}</span>
-                  <span class="text-xs text-gray-500">{{ player.franchise }} · {{ player.role }}</span>
-                  @if (isCaptain(team, player)) {
-                    <mat-chip class="text-xs bg-yellow-200">C</mat-chip>
+                  <span class="flex-1 text-sm font-medium" style="color: var(--color-text);">
+                    {{ player.name }}
+                  </span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">
+                    {{ player.franchise }} · {{ player.role }}
+                  </span>
+                  @if (isCap) {
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold"
+                          style="background: var(--color-warning); color: var(--color-base);">C</span>
                   }
-                  @if (isVC(team, player)) {
-                    <mat-chip class="text-xs bg-orange-200">VC</mat-chip>
+                  @if (isVc) {
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold"
+                          style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
                   }
                 </div>
               }
@@ -69,7 +86,9 @@ import { FantasyTeam, Player } from '../../../core/models/api.models';
         }
 
         @if (teams().length === 0 && !loading()) {
-          <p class="text-center text-gray-400 py-8">No teams submitted for this match.</p>
+          <div class="text-center py-12 card-surface">
+            <p style="color: var(--color-text-muted);">No teams submitted for this match.</p>
+          </div>
         }
       }
     </div>
@@ -87,6 +106,16 @@ export class AllTeamsTabComponent implements OnInit {
   readonly error = signal('');
 
   readonly deadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
+
+  roleColor(role: string): string {
+    const colors: Record<string, string> = {
+      BAT: '#7C3AED',
+      AR: '#22C55E',
+      BOWL: '#E8534A',
+      WK: '#F59E0B',
+    };
+    return colors[role] ?? 'var(--color-text-subtle)';
+  }
 
   ngOnInit() {
     if (!this.deadlinePassed()) return;

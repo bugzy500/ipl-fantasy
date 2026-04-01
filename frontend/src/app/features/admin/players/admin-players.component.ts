@@ -28,23 +28,22 @@ const ROLES: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
   template: `
     <div class="space-y-6">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-gray-800">Manage Players</h1>
-        <button mat-flat-button color="primary" (click)="showForm.update(v => !v)">
-          <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
+        <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">Manage Players</h1>
+        <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
           {{ showForm() ? 'Cancel' : 'Add Player' }}
         </button>
       </div>
 
       <!-- Add player form -->
       @if (showForm()) {
-        <div class="bg-gray-50 rounded-xl p-4 border">
-          <h3 class="font-semibold mb-4">{{ editingPlayer() ? 'Edit Player' : 'New Player' }}</h3>
+        <div class="card-surface p-5" style="border: 1px solid var(--color-border);">
+          <h3 class="text-display font-semibold mb-4" style="color: var(--color-text);">{{ editingPlayer() ? 'Edit Player' : 'New Player' }}</h3>
           <form [formGroup]="playerForm" (ngSubmit)="savePlayer()" class="grid md:grid-cols-3 gap-4">
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Name</mat-label>
               <input matInput formControlName="name" />
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Franchise</mat-label>
               <mat-select formControlName="franchise">
                 @for (f of franchises; track f) {
@@ -52,7 +51,7 @@ const ROLES: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Role</mat-label>
               <mat-select formControlName="role">
                 @for (r of roles; track r) {
@@ -60,12 +59,12 @@ const ROLES: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
                 }
               </mat-select>
             </mat-form-field>
-            <mat-form-field appearance="outline">
+            <mat-form-field appearance="fill">
               <mat-label>Credits</mat-label>
               <input matInput type="number" formControlName="credits" step="0.5" />
             </mat-form-field>
             <div class="flex items-end gap-2 col-span-2">
-              <button mat-flat-button color="primary" type="submit"
+              <button class="btn-primary text-sm" type="submit"
                       [disabled]="playerForm.invalid || saving()">
                 {{ saving() ? 'Saving…' : editingPlayer() ? 'Update' : 'Create' }}
               </button>
@@ -97,7 +96,7 @@ const ROLES: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
           </ng-container>
           <ng-container matColumnDef="credits">
             <th mat-header-cell *matHeaderCellDef>Credits</th>
-            <td mat-cell *matCellDef="let p" class="font-semibold text-violet-600">{{ p.credits }}</td>
+            <td mat-cell *matCellDef="let p" class="font-semibold" style="color: var(--color-accent-hover);">{{ p.credits }}</td>
           </ng-container>
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef></th>
@@ -112,7 +111,7 @@ const ROLES: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
           </ng-container>
           <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
           <tr mat-row *matRowDef="let row; columns: displayedColumns;"
-              class="hover:bg-gray-50"></tr>
+              style="transition: background 0.15s;"></tr>
         </table>
       </div>
     </div>

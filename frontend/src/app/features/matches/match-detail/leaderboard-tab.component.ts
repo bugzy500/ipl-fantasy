@@ -1,26 +1,28 @@
 import { Component, inject, input, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
-import { MatChipsModule } from '@angular/material/chips';
 import { interval, Subscription, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
-import { LeaderboardEntry, FantasyTeam, MatchStatus } from '../../../core/models/api.models';
+import { LeaderboardEntry, MatchStatus } from '../../../core/models/api.models';
 
 const POLL_INTERVAL_MS = 30_000;
 
 @Component({
   selector: 'app-leaderboard-tab',
   standalone: true,
-  imports: [MatProgressSpinnerModule, MatIconModule, MatChipsModule],
+  imports: [MatProgressSpinnerModule, MatIconModule],
   template: `
-    <div class="p-4 space-y-4">
+    <div class="p-4 space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="font-semibold text-gray-700">Match Leaderboard</h3>
+        <h3 class="text-display font-semibold" style="color: var(--color-text);">
+          Match Leaderboard
+        </h3>
         @if (isLive()) {
-          <mat-chip class="bg-red-100 text-red-700">
-            <mat-icon class="text-xs mr-1">circle</mat-icon> Live · updates every 30s
-          </mat-chip>
+          <span class="inline-flex items-center gap-1.5 status-live">
+            <span class="live-dot"></span>
+            updates every 30s
+          </span>
         }
       </div>
 
@@ -28,32 +30,36 @@ const POLL_INTERVAL_MS = 30_000;
         <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
       }
       @if (error()) {
-        <p class="text-red-500 text-center">{{ error() }}</p>
+        <p class="text-center" style="color: var(--color-danger);">{{ error() }}</p>
       }
 
       @for (entry of leaderboard(); track entry.userId; let i = $index) {
-        <div class="flex items-center gap-3 p-3 rounded-xl border"
-             [class.border-violet-400]="entry.userId === myUserId()"
-             [class.bg-violet-50]="entry.userId === myUserId()">
-          <span class="w-8 text-center font-bold text-lg"
-                [class.text-yellow-500]="i === 0"
-                [class.text-gray-400]="i === 1"
-                [class.text-orange-600]="i === 2">
+        <div class="flex items-center gap-3 p-4 rounded-xl transition-all stagger-item fade-up"
+             [style.background]="entry.userId === myUserId() ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
+             [style.border]="entry.userId === myUserId() ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'">
+          <span class="w-8 text-center text-display font-bold text-lg"
+                [style.color]="rankColor(i)">
             {{ i + 1 }}
           </span>
-          <mat-icon class="text-gray-400">person</mat-icon>
-          <span class="flex-1 font-medium">
+          <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+            person
+          </mat-icon>
+          <span class="flex-1 font-medium text-sm" style="color: var(--color-text);">
             {{ entry.userName }}
             @if (entry.userId === myUserId()) {
-              <span class="text-xs text-violet-500 ml-1">(You)</span>
+              <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
             }
           </span>
-          <span class="font-bold text-violet-700 text-lg">{{ entry.totalPoints }}</span>
+          <span class="text-display font-bold text-lg" style="color: var(--color-accent-hover);">
+            {{ entry.totalPoints }}
+          </span>
         </div>
       }
 
       @if (leaderboard().length === 0 && !loading()) {
-        <p class="text-center text-gray-400 py-8">No teams submitted for this match yet.</p>
+        <div class="text-center py-12 card-surface">
+          <p style="color: var(--color-text-muted);">No teams submitted for this match yet.</p>
+        </div>
       }
     </div>
   `,
@@ -73,8 +79,14 @@ export class LeaderboardTabComponent implements OnInit, OnDestroy {
 
   private subscription?: Subscription;
 
+  rankColor(index: number): string {
+    if (index === 0) return '#F59E0B';
+    if (index === 1) return '#94A3B8';
+    if (index === 2) return '#D97706';
+    return 'var(--color-text-muted)';
+  }
+
   ngOnInit() {
-    // Poll every 30s if live, otherwise fetch once
     const source$ = this.isLive()
       ? interval(POLL_INTERVAL_MS).pipe(startWith(0), switchMap(() => this.api.getMatchLeaderboard(this.matchId())))
       : this.api.getMatchLeaderboard(this.matchId());

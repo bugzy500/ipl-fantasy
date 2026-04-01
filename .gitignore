@@ -1,5 +1,19 @@
 node_modules/
 .env
+.env.*
 dist/
 .angular/
 *.log
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Claude Code
+.claude/
+
+# OS
+Thumbs.db
