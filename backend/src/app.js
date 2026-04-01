@@ -12,6 +12,7 @@ const teamRoutes = require('./routes/teams.routes');
 const scoreRoutes = require('./routes/scores.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
 const awardsRoutes = require('./routes/awards.routes');
+const { startCronJobs } = require('./services/cron.service');
 
 const app = express();
 
@@ -55,6 +56,7 @@ mongoose
   .then(() => {
     console.log('✅ Connected to MongoDB');
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    startCronJobs();
   })
   .catch((err) => {
     console.error('❌ MongoDB connection error:', err.message);

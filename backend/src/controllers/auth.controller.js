@@ -12,13 +12,13 @@ const register = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { name, email, password } = req.body;
+  const { name, email, password, phone } = req.body;
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(409).json({ message: 'Email already in use' });
 
     const isFirstUser = (await User.countDocuments()) === 0;
-    const user = await User.create({ name, email, password, role: isFirstUser ? 'admin' : 'user' });
+    const user = await User.create({ name, email, password, phone: phone || '', role: isFirstUser ? 'admin' : 'user' });
 
     // If first user, create the league automatically
     if (isFirstUser) {

@@ -12,6 +12,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: 'admin' | 'user';
 }
 
@@ -42,6 +43,7 @@ export interface Match {
   status: MatchStatus;
   playingXI: { team1: Player[]; team2: Player[] };
   result: string;
+  cricApiMatchId?: string;
 }
 
 export interface FantasyTeam {

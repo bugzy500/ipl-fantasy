@@ -21,6 +21,8 @@ const matchSchema = new mongoose.Schema(
       team2: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }],
     },
     result: { type: String, default: '' },
+    // CricketData.org match ID for live score fetching
+    cricApiMatchId: { type: String, default: '' },
   },
   { timestamps: true }
 );
