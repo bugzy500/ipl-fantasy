@@ -130,4 +130,8 @@ export class ApiService {
   syncPlayerImages() {
     return this.http.post(`${this.base}/cricapi/sync-images`, {});
   }
+
+  autoLinkCricApiMatches() {
+    return this.http.post<{ linked: number; results: any[] }>(`${this.base}/cricapi/auto-link`, {});
+  }
 }

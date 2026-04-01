@@ -1,6 +1,6 @@
 const Match = require('../models/Match.model');
 const Player = require('../models/Player.model');
-const { getMatchScorecard, mapScorecardToPerformances, getUsageToday } = require('../services/cricapi.service');
+const { getMatchScorecard, mapScorecardToPerformances, getUsageToday, autoLinkMatches } = require('../services/cricapi.service');
 const { matchPlayer, buildLookupMap } = require('../services/name-matcher.service');
 const { processPerformances } = require('../services/score-processor.service');
 const livePoller = require('../services/live-poller.service');
@@ -146,4 +146,14 @@ const syncImages = async (req, res) => {
   }
 };
 
-module.exports = { linkMatch, startPoll, stopPoll, getPollingStatus, syncOnce, previewScorecard, syncImages };
+// POST /api/cricapi/auto-link — auto-match CricAPI matches to local matches by team+date
+const autoLink = async (req, res) => {
+  try {
+    const result = await autoLinkMatches();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { linkMatch, startPoll, stopPoll, getPollingStatus, syncOnce, previewScorecard, syncImages, autoLink };

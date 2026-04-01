@@ -27,11 +27,17 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
   ],
   template: `
     <div class="space-y-6">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-wrap gap-2">
         <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">Manage Matches</h1>
-        <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
-          {{ showForm() ? 'Cancel' : 'Schedule Match' }}
-        </button>
+        <div class="flex gap-2">
+          <button mat-stroked-button class="text-sm" (click)="autoLinkAll()"
+                  [disabled]="autoLinking()">
+            {{ autoLinking() ? 'Linking...' : 'Auto-Link CricAPI' }}
+          </button>
+          <button class="btn-primary text-sm px-4 py-2" (click)="showForm.update(v => !v)">
+            {{ showForm() ? 'Cancel' : 'Schedule Match' }}
+          </button>
+        </div>
       </div>
 
       <!-- Schedule match form -->
@@ -185,6 +191,7 @@ export class AdminMatchesComponent {
   readonly showForm = signal(false);
   readonly saving = signal(false);
   readonly editingDeadlineId = signal<string | null>(null);
+  readonly autoLinking = signal(false);
   private newDeadline = '';
 
   readonly matches = resource({
@@ -311,6 +318,21 @@ export class AdminMatchesComponent {
         this.matches.reload();
       },
       error: (err) => this.snackBar.open(err.error?.message ?? 'Sync failed', 'OK', { duration: 3000 }),
+    });
+  }
+
+  autoLinkAll() {
+    this.autoLinking.set(true);
+    this.api.autoLinkCricApiMatches().subscribe({
+      next: (res) => {
+        this.snackBar.open(`✅ Linked ${res.linked} match(es) from CricAPI`, 'OK', { duration: 3000 });
+        this.matches.reload();
+        this.autoLinking.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err.error?.message ?? 'Auto-link failed', 'OK', { duration: 3000 });
+        this.autoLinking.set(false);
+      },
     });
   }
 }
