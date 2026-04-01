@@ -21,6 +21,10 @@ const matchSchema = new mongoose.Schema(
       team2: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Player' }],
     },
     result: { type: String, default: '' },
+    // CricAPI integration
+    cricApiMatchId: { type: String, default: '' },
+    lastPolledAt: { type: Date },
+    pollingEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -44,7 +44,7 @@ const createMatch = async (req, res) => {
 // PATCH /api/matches/:id  (admin) — update status, announce playing XI, add result
 const updateMatch = async (req, res) => {
   try {
-    const allowedFields = ['status', 'playingXI', 'result', 'venue', 'deadline'];
+    const allowedFields = ['status', 'playingXI', 'result', 'venue', 'deadline', 'cricApiMatchId', 'lastPolledAt', 'pollingEnabled'];
     const updateData = {};
     allowedFields.forEach((f) => { if (req.body[f] !== undefined) updateData[f] = req.body[f]; });
 

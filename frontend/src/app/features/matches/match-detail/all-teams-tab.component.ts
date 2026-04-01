@@ -65,6 +65,10 @@ import { FantasyTeam, Player } from '../../../core/models/api.models';
                   <div class="w-2 h-2 rounded-full flex-shrink-0"
                        [style.background]="roleColor(player.role)">
                   </div>
+                  <img [src]="player.imageUrl || 'assets/default-player.svg'"
+                       class="w-6 h-6 rounded-full object-cover flex-shrink-0"
+                       [alt]="player.name"
+                       (error)="$any($event.target).src='assets/default-player.svg'" />
                   <span class="flex-1 text-sm font-medium" style="color: var(--color-text);">
                     {{ player.name }}
                   </span>

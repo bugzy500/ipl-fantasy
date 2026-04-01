@@ -10,6 +10,7 @@ const playerSchema = new mongoose.Schema(
     role: { type: String, required: true, enum: ['WK', 'BAT', 'AR', 'BOWL'] },
     credits: { type: Number, required: true, min: 5, max: 15 },
     imageUrl: { type: String, default: '' },
+    aliases: [{ type: String }], // alternate names for CricAPI matching (e.g., "V Kohli")
     isActive: { type: Boolean, default: true }, // false = injured/unavailable for season
   },
   { timestamps: true }

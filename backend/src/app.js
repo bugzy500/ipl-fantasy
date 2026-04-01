@@ -12,6 +12,7 @@ const teamRoutes = require('./routes/teams.routes');
 const scoreRoutes = require('./routes/scores.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
 const awardsRoutes = require('./routes/awards.routes');
+const cricapiRoutes = require('./routes/cricapi.routes');
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/scores', scoreRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/awards', awardsRoutes);
+app.use('/api/cricapi', cricapiRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Route not found' }));
@@ -54,6 +56,11 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB');
+
+    // Restart CricAPI pollers for any live matches (handles Render spin-down recovery)
+    const livePoller = require('./services/live-poller.service');
+    livePoller.restartActivePollers();
+
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((err) => {
