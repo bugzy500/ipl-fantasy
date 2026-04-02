@@ -1,0 +1,341 @@
+{
+  "matches": [
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 149673,
+          "seriesId": 9241,
+          "seriesName": "Indian Premier League 2026",
+          "matchDesc": "6th Match",
+          "matchFormat": "T20",
+          "startDate": 1775138400000,
+          "endDate": 1775151366637,
+          "state": "Complete",
+          "status": "Sunrisers Hyderabad won by 65 runs",
+          "team1": {
+            "teamId": 255,
+            "teamName": "Sunrisers Hyderabad",
+            "teamSName": "SRH",
+            "imageId": 860066
+          },
+          "team2": {
+            "teamId": 63,
+            "teamName": "Kolkata Knight Riders",
+            "teamSName": "KKR",
+            "imageId": 860046
+          },
+          "venueInfo": {
+            "id": 31,
+            "ground": "Eden Gardens",
+            "city": "Kolkata",
+            "timezone": "+05:30"
+          },
+          "currBatTeamId": 255,
+          "isTournament": true,
+          "seriesStartDt": 1774569600000,
+          "seriesEndDt": 1780272000000,
+          "isTimeAnnounced": true,
+          "stateTitle": "SRH won",
+          "matchType": "league",
+          "shortStatus": "SRH won",
+          "matchImageId": 891560,
+          "isForecastEnabled": true
+        },
+        "matchScore": {
+          "team1Score": {
+            "inngs1": {
+              "inningsId": 1,
+              "runs": 226,
+              "wickets": 8,
+              "overs": 19.6
+            }
+          },
+          "team2Score": {
+            "inngs1": {
+              "inningsId": 2,
+              "runs": 161,
+              "wickets": 10,
+              "overs": 15.6
+            }
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 149042,
+          "seriesId": 11537,
+          "seriesName": "Pakistan Super League 2026",
+          "matchDesc": "10th Match",
+          "matchFormat": "T20",
+          "startDate": 1775138400000,
+          "endDate": 1775151183404,
+          "state": "Complete",
+          "status": "Karachi Kings won by 5 wkts",
+          "team1": {
+            "teamId": 3116,
+            "teamName": "Rawalpindiz",
+            "teamSName": "RWP",
+            "imageId": 883174
+          },
+          "team2": {
+            "teamId": 332,
+            "teamName": "Karachi Kings",
+            "teamSName": "KRK",
+            "imageId": 883188
+          },
+          "venueInfo": {
+            "id": 26,
+            "ground": "Gaddafi Stadium",
+            "city": "Lahore",
+            "timezone": "+05:00"
+          },
+          "currBatTeamId": 332,
+          "isTournament": true,
+          "seriesStartDt": 1774396800000,
+          "seriesEndDt": 1777852800000,
+          "isTimeAnnounced": true,
+          "stateTitle": "KRK won",
+          "matchType": "league",
+          "shortStatus": "KRK won",
+          "matchImageId": 892174,
+          "isForecastEnabled": true
+        },
+        "matchScore": {
+          "team1Score": {
+            "inngs1": {
+              "inningsId": 1,
+              "runs": 197,
+              "wickets": 6,
+              "overs": 19.6
+            }
+          },
+          "team2Score": {
+            "inngs1": {
+              "inningsId": 2,
+              "runs": 199,
+              "wickets": 5,
+              "overs": 19.2
+            }
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 149684,
+          "seriesId": 9241,
+          "seriesName": "Indian Premier League 2026",
+          "matchDesc": "7th Match",
+          "matchFormat": "T20",
+          "startDate": 1775224800000,
+          "endDate": 1775235600000,
+          "state": "Preview",
+          "status": "Match starts at Apr 03, 14:00 GMT",
+          "team1": {
+            "teamId": 58,
+            "teamName": "Chennai Super Kings",
+            "teamSName": "CSK",
+            "imageId": 860038
+          },
+          "team2": {
+            "teamId": 65,
+            "teamName": "Punjab Kings",
+            "teamSName": "PBKS",
+            "imageId": 860084
+          },
+          "venueInfo": {
+            "id": 11,
+            "ground": "MA Chidambaram Stadium",
+            "city": "Chennai",
+            "timezone": "+05:30"
+          },
+          "isTournament": true,
+          "seriesStartDt": 1774569600000,
+          "seriesEndDt": 1780272000000,
+          "isTimeAnnounced": true,
+          "stateTitle": "Preview",
+          "matchType": "league",
+          "shortStatus": "Apr 03, 14:00 GMT",
+          "matchImageId": 892741,
+          "isForecastEnabled": true
+        }
+      }
+    },
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 149031,
+          "seriesId": 11537,
+          "seriesName": "Pakistan Super League 2026",
+          "matchDesc": "9th Match",
+          "matchFormat": "T20",
+          "startDate": 1775122200000,
+          "endDate": 1775134237791,
+          "state": "Complete",
+          "status": "Islamabad United won by 8 wkts",
+          "team1": {
+            "teamId": 331,
+            "teamName": "Quetta Gladiators",
+            "teamSName": "QTG",
+            "imageId": 883182
+          },
+          "team2": {
+            "teamId": 330,
+            "teamName": "Islamabad United",
+            "teamSName": "ISU",
+            "imageId": 883184
+          },
+          "venueInfo": {
+            "id": 26,
+            "ground": "Gaddafi Stadium",
+            "city": "Lahore",
+            "timezone": "+05:00"
+          },
+          "currBatTeamId": 330,
+          "isTournament": true,
+          "seriesStartDt": 1774396800000,
+          "seriesEndDt": 1777852800000,
+          "isTimeAnnounced": true,
+          "stateTitle": "ISU won",
+          "matchType": "league",
+          "shortStatus": "ISU won",
+          "matchImageId": 883029,
+          "isForecastEnabled": true
+        },
+        "matchScore": {
+          "team1Score": {
+            "inngs1": {
+              "inningsId": 1,
+              "runs": 183,
+              "wickets": 5,
+              "overs": 19.6
+            }
+          },
+          "team2Score": {
+            "inngs1": {
+              "inningsId": 2,
+              "runs": 189,
+              "wickets": 2,
+              "overs": 18.2
+            }
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 149662,
+          "seriesId": 9241,
+          "seriesName": "Indian Premier League 2026",
+          "matchDesc": "5th Match",
+          "matchFormat": "T20",
+          "startDate": 1775052000000,
+          "endDate": 1775064716266,
+          "state": "Complete",
+          "status": "Delhi Capitals won by 6 wkts",
+          "team1": {
+            "teamId": 966,
+            "teamName": "Lucknow Super Giants",
+            "teamSName": "LSG",
+            "imageId": 882545
+          },
+          "team2": {
+            "teamId": 61,
+            "teamName": "Delhi Capitals",
+            "teamSName": "DC",
+            "imageId": 860040
+          },
+          "venueInfo": {
+            "id": 485,
+            "ground": "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium",
+            "city": "Lucknow",
+            "timezone": "+05:30"
+          },
+          "currBatTeamId": 61,
+          "isTournament": true,
+          "seriesStartDt": 1774569600000,
+          "seriesEndDt": 1780272000000,
+          "isTimeAnnounced": true,
+          "stateTitle": "DC won",
+          "matchType": "league",
+          "shortStatus": "DC won",
+          "matchImageId": 890024,
+          "isForecastEnabled": true
+        },
+        "matchScore": {
+          "team1Score": {
+            "inngs1": {
+              "inningsId": 1,
+              "runs": 141,
+              "wickets": 10,
+              "overs": 18.4
+            }
+          },
+          "team2Score": {
+            "inngs1": {
+              "inningsId": 2,
+              "runs": 145,
+              "wickets": 4,
+              "overs": 17.1
+            }
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "matchInfo": {
+          "matchId": 148375,
+          "seriesId": 11634,
+          "seriesName": "Australia Women tour of West Indies, 2026",
+          "matchDesc": "3rd ODI",
+          "matchFormat": "ODI",
+          "startDate": 1775152800000,
+          "endDate": 1775178000000,
+          "state": "In Progress",
+          "status": "West Indies Women opt to bat",
+          "team1": {
+            "teamId": 257,
+            "teamName": "West Indies Women",
+            "teamSName": "WIW",
+            "imageId": 776194
+          },
+          "team2": {
+            "teamId": 100,
+            "teamName": "Australia Women",
+            "teamSName": "AUSW",
+            "imageId": 776205
+          },
+          "venueInfo": {
+            "id": 96,
+            "ground": "Warner Park",
+            "city": "Basseterre, St Kitts",
+            "timezone": "-04:00"
+          },
+          "currBatTeamId": 257,
+          "seriesStartDt": 1773792000000,
+          "seriesEndDt": 1775174400000,
+          "isTimeAnnounced": true,
+          "stateTitle": "In Progress",
+          "matchType": "International",
+          "shortStatus": "WIW opt to bat",
+          "matchImageId": 883313
+        },
+        "matchScore": {
+          "team1Score": {
+            "inngs1": {
+              "inningsId": 1,
+              "runs": 32,
+              "overs": 4.6
+            }
+          }
+        }
+      }
+    }
+  ],
+  "responseLastUpdated": 1775153986976
+}
