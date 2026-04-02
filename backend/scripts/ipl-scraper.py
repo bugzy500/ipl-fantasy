@@ -35,6 +35,12 @@ IST = timezone(timedelta(hours=5, minutes=30))
 DM_INTERVAL_MIN = 15
 STATE_FILE = "/opt/services/ipl-scraper/state.json"
 
+# WhatsApp Group — Saanp Premier League
+SPL_GROUP_JID = "120363407548600267@g.us"
+
+# Reminder schedule: 40min, 20min, 10min before deadline
+REMINDER_MINS = [40, 20, 10]
+
 # IPL team name → abbreviation map
 TEAM_MAP = {
     "chennai super kings": "CSK", "mumbai indians": "MI",
@@ -122,6 +128,7 @@ def save_state(state):
 
 # ─── WhatsApp ───
 def send_dm(phone, message):
+    """Send personal DM (kept for fallback)."""
     if not phone:
         return False
     try:
@@ -130,6 +137,22 @@ def send_dm(phone, message):
                          timeout=10)
         return r.ok
     except:
+        return False
+
+
+def send_group(message):
+    """Send message to Saanp Premier League group."""
+    try:
+        r = requests.post(WA_URL, json={"to": SPL_GROUP_JID, "message": message},
+                         headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                         timeout=10)
+        if r.ok:
+            print(f"    Group msg sent ({len(message)} chars)")
+        else:
+            print(f"    Group msg FAILED: {r.status_code} {r.text[:100]}")
+        return r.ok
+    except Exception as e:
+        print(f"    Group msg error: {e}")
         return False
 
 
@@ -495,49 +518,124 @@ def update_match_scores(db, cb_match_id, scorecard):
 
 
 def send_whatsapp_updates(db, match, team_scores, state):
-    """Send personalized WhatsApp DM to each league member."""
+    """Send live/completion updates to group instead of individual DMs."""
     match_key = str(match["_id"])
     now = time.time()
     last_sent = state.get("last_dm", {}).get(match_key, 0)
 
+    # Skip if sent recently (15 min throttle)
     if now - last_sent < DM_INTERVAL_MIN * 60:
         return
 
     if not team_scores:
         return
 
+    # Skip if final message already sent for this match
+    final_key = f"{match_key}_final"
+    if state.get("last_dm", {}).get(final_key):
+        return
+
+    is_complete = match.get("status") == "completed"
+    all_scores = team_scores  # already sorted desc
+    top = all_scores[:10]  # show all in group
+
+    if is_complete:
+        medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
+        podium = "\n".join(
+            f"{medals[i] if i < 3 else f'{i+1}.'} {u['userName']} — {u['totalPoints']} pts"
+            for i, u in enumerate(all_scores)
+        )
+        msg = (f"\U0001f3c6 *{match['team1']} vs {match['team2']}* — Match Complete!\n\n"
+               f"{podium}\n\n"
+               f"\U0001f4b0 Winner takes ₹{len(all_scores) * 100} pot!\n"
+               f"Full breakdown in the app \U0001f449 https://ipl.bugzy500.com")
+        send_group(msg)
+        # Mark as final so we never message again for this match
+        state.setdefault("last_dm", {})[final_key] = True
+    else:
+        lb_text = "\n".join(
+            f"{i+1}. {u['userName']} — {u['totalPoints']} pts"
+            for i, u in enumerate(top)
+        )
+        msg = (f"\U0001f4ca *Live — {match['team1']} vs {match['team2']}*\n\n"
+               f"{lb_text}\n\n"
+               f"Points updating every 3 min! \U0001f525")
+        send_group(msg)
+
+    state.setdefault("last_dm", {})[match_key] = now
+    print(f"    Sent group update ({'final' if is_complete else 'live'})")
+
+
+def send_submission_reminders(db, state):
+    """
+    Send 3 reminders to group before each match deadline:
+    40 min, 20 min, 10 min — showing who submitted vs who is pending.
+    """
+    now_ist = datetime.now(IST)
     league = db.leagues.find_one({"season": "IPL_2026"})
     if not league:
         return
 
-    members = list(db.users.find({"_id": {"$in": league.get("members", [])}, "phone": {"$ne": ""}}))
-    top5 = team_scores[:5]
-    lb_text = "\n".join(f"{i+1}. {u['userName']} \u2014 {u['totalPoints']} pts" for i, u in enumerate(top5))
+    member_ids = league.get("members", [])
+    members = list(db.users.find({"_id": {"$in": member_ids}}))
 
-    is_complete = match.get("status") == "completed"
+    # Find upcoming matches (deadline in next 45 min)
+    upcoming = list(db.matches.find({
+        "status": "upcoming",
+        "deadline": {"$gt": now_ist, "$lt": now_ist + timedelta(minutes=45)}
+    }))
 
-    for user in members:
-        phone = user.get("phone", "")
-        if not phone:
+    for match in upcoming:
+        match_key = str(match["_id"])
+        deadline = match.get("deadline")
+        if not deadline:
             continue
 
-        my_rank = next((i for i, t in enumerate(team_scores) if t["userId"] == str(user["_id"])), -1)
-        my_line = f"\nYou're #{my_rank + 1} with {team_scores[my_rank]['totalPoints']} pts" if my_rank >= 0 else ""
+        # Make deadline timezone-aware if it isn't
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=IST)
 
-        if is_complete:
-            medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
-            podium = "\n".join(
-                f"{medals[i] if i < 3 else f'{i+1}.'} {u['userName']} \u2014 {u['totalPoints']} pts"
-                for i, u in enumerate(top5)
-            )
-            msg = f"\U0001f3c6 *{match['team1']} vs {match['team2']}* \u2014 Match Complete!\n\n{podium}{my_line}\n\nFull leaderboard in the app."
-        else:
-            msg = f"\U0001f4ca *Live \u2014 {match['team1']} vs {match['team2']}*\n\n{lb_text}{my_line}\n\nPoints updating live!"
+        mins_left = (deadline - now_ist).total_seconds() / 60
 
-        send_dm(phone, msg)
+        # Check which reminder tier we're in
+        for tier_min in REMINDER_MINS:
+            tier_key = f"{match_key}_reminder_{tier_min}"
 
-    state.setdefault("last_dm", {})[match_key] = now
-    print(f"    Sent DMs to {len(members)} members")
+            # Already sent this tier?
+            if state.get("last_dm", {}).get(tier_key):
+                continue
+
+            # Is it time for this tier? (within 3 min window since cron runs every 3 min)
+            if mins_left <= tier_min and mins_left > tier_min - 4:
+                # Find who submitted and who didn't
+                submitted_teams = list(db.fantasyteams.find({"matchId": match["_id"]}))
+                submitted_user_ids = {str(t["userId"]) for t in submitted_teams}
+
+                submitted = []
+                pending = []
+                for m in members:
+                    name = m.get("name", "?")
+                    if str(m["_id"]) in submitted_user_ids:
+                        submitted.append(name)
+                    else:
+                        pending.append(name)
+
+                submitted_text = ", ".join(submitted) if submitted else "Nobody yet!"
+                pending_text = ", ".join(pending) if pending else "All done! \U0001f389"
+
+                urgency = {40: "\u23f0", 20: "\u26a0\ufe0f", 10: "\U0001f6a8"}
+                mins_display = round(mins_left)
+
+                msg = (f"{urgency.get(tier_min, '\u23f0')} *{match['team1']} vs {match['team2']}* — "
+                       f"*{mins_display} min* to deadline!\n\n"
+                       f"\u2705 *Submitted:* {submitted_text}\n"
+                       f"\u274c *Pending:* {pending_text}\n\n"
+                       f"Lock your team now! \U0001f449 https://ipl.bugzy500.com")
+
+                send_group(msg)
+                state.setdefault("last_dm", {})[tier_key] = True
+                print(f"    Reminder sent: {tier_min}min tier for {match['team1']} vs {match['team2']}")
+                break  # Only send one tier per run
 
 
 # ─── Main ───
@@ -547,36 +645,50 @@ def main():
 
     state = load_state()
 
-    # 1. Find live IPL matches
-    try:
-        matches = get_live_ipl_matches()
-    except Exception as e:
-        print(f"  Error fetching match list: {e}")
-        return
-
-    if not matches:
-        print("  No live IPL matches")
-        return
-
-    print(f"  Found {len(matches)} match(es)")
-
-    # 2. Connect to MongoDB
+    # 1. Connect to MongoDB (needed for both reminders and scoring)
     client = MongoClient(MONGO_URI)
     db = client["test"]
 
     try:
+        # 2. Send submission reminders (runs even without live matches)
+        try:
+            send_submission_reminders(db, state)
+        except Exception as e:
+            print(f"  Reminder error: {e}")
+
+        # 3. Find live IPL matches
+        try:
+            matches = get_live_ipl_matches()
+        except Exception as e:
+            print(f"  Error fetching match list: {e}")
+            matches = []
+
+        if not matches:
+            print("  No live IPL matches")
+        else:
+            print(f"  Found {len(matches)} match(es)")
+
         for m in matches:
             cb_id = m["cb_id"]
             print(f"\n  CB#{cb_id}: {m['slug']}")
 
+            # Skip completed matches with final msg already sent
+            final_key = None
+            db_match = db.matches.find_one({"cricApiMatchId": str(cb_id)})
+            if db_match:
+                final_key = f"{db_match['_id']}_final"
+                if state.get("last_dm", {}).get(final_key):
+                    print("    Skipped (final msg already sent)")
+                    continue
+
             try:
-                # 3. Extract scorecard JSON from RSC payload
+                # 4. Extract scorecard JSON from RSC payload
                 raw = extract_scorecard_json(cb_id)
                 if not raw:
                     print("    No scorecard data in RSC payload")
                     continue
 
-                # 4. Parse into our format
+                # 5. Parse into our format
                 scorecard = parse_scorecard(raw)
                 if not scorecard or not scorecard["innings"]:
                     print("    No innings parsed")
@@ -587,12 +699,12 @@ def main():
                 print(f"    Parsed: {len(scorecard['innings'])} innings, {total_bat} batters, {total_bowl} bowlers")
                 print(f"    Teams: {scorecard['teams']}")
 
-                # 5. Update MongoDB + recalculate points
+                # 6. Update MongoDB + recalculate points
                 result = update_match_scores(db, cb_id, scorecard)
                 if not result:
                     continue
 
-                # 6. Send WhatsApp DMs
+                # 7. Send group updates
                 send_whatsapp_updates(db, result["match"], result["team_scores"], state)
 
             except Exception as e:
