@@ -477,6 +477,35 @@ def update_match_scores(db, cb_match_id, scorecard):
         print(f"    No performances mapped for {match.get('team1')} vs {match.get('team2')}")
         return None
 
+    # Auto-populate playingXI from scorecard data if not already set
+    existing_xi = match.get("playingXI", {})
+    if not existing_xi.get("team1") or not existing_xi.get("team2"):
+        # Collect player IDs by franchise, matched to team1/team2
+        t1_abbr = match.get("team1", "")
+        t2_abbr = match.get("team2", "")
+        xi_team1 = set()
+        xi_team2 = set()
+        for pid in performances:
+            player = next((p for p in players if str(p["_id"]) == pid), None)
+            if not player:
+                continue
+            franchise = player.get("franchise", "")
+            if franchise == t1_abbr:
+                xi_team1.add(player["_id"])
+            elif franchise == t2_abbr:
+                xi_team2.add(player["_id"])
+
+        # Only set if we found at least 11 players per side (full XI)
+        if len(xi_team1) >= 11 or len(xi_team2) >= 11:
+            update_xi = {}
+            if len(xi_team1) >= 11 and not existing_xi.get("team1"):
+                update_xi["playingXI.team1"] = list(xi_team1)[:11]
+            if len(xi_team2) >= 11 and not existing_xi.get("team2"):
+                update_xi["playingXI.team2"] = list(xi_team2)[:11]
+            if update_xi:
+                db.matches.update_one({"_id": match_id}, {"$set": update_xi})
+                print(f"    Auto-set playingXI: team1={len(xi_team1)}, team2={len(xi_team2)}")
+
     # Upsert performances + calculate fantasy points
     player_points = {}
     for pid, perf in performances.items():
@@ -900,6 +929,84 @@ def update_playing_11_best_effort_basis(match: dict, db) -> bool:
 
 
 
+# ─── Squad Announced: notify who needs to edit their team ───
+def send_squad_announcement(db, match, state):
+    """
+    When playingXI gets populated for a match, send a WhatsApp message to the group:
+    1. Full playing XI for both teams
+    2. For each user who already submitted: which players are NOT in the playing XI
+    """
+    match_id = match["_id"]
+    squad_key = f"{match_id}_squad_announced"
+
+    # Already sent?
+    if state.get("last_dm", {}).get(squad_key):
+        return
+
+    playing_xi = match.get("playingXI", {})
+    team1_ids = [str(pid) for pid in playing_xi.get("team1", [])]
+    team2_ids = [str(pid) for pid in playing_xi.get("team2", [])]
+
+    if not team1_ids or not team2_ids:
+        return
+
+    all_playing_ids = set(team1_ids + team2_ids)
+
+    # Get player names for playing XI
+    team1_players = list(db.players.find({"_id": {"$in": [ObjectId(pid) for pid in team1_ids]}}))
+    team2_players = list(db.players.find({"_id": {"$in": [ObjectId(pid) for pid in team2_ids]}}))
+
+    t1_name = match.get("team1", "Team 1")
+    t2_name = match.get("team2", "Team 2")
+
+    t1_names = ", ".join(p["name"] for p in team1_players)
+    t2_names = ", ".join(p["name"] for p in team2_players)
+
+    # Build the message
+    msg_parts = [
+        f"\U0001f4cb *Playing XI Announced!*\n",
+        f"\U0001f7e0 *{t1_name}:*\n{t1_names}\n",
+        f"\U0001f535 *{t2_name}:*\n{t2_names}\n",
+    ]
+
+    # Check submitted teams for non-playing players
+    league = db.leagues.find_one({"season": "IPL_2026"})
+    if league:
+        member_ids = league.get("members", [])
+        submitted_teams = list(db.fantasyteams.find({"matchId": match_id}))
+
+        edit_alerts = []
+        for team in submitted_teams:
+            user = db.users.find_one({"_id": team["userId"]})
+            if not user:
+                continue
+            user_name = user.get("name", "?")
+            team_player_ids = [str(pid) for pid in team.get("players", [])]
+            not_playing = []
+
+            for pid in team_player_ids:
+                if pid not in all_playing_ids:
+                    player = db.players.find_one({"_id": ObjectId(pid)})
+                    if player:
+                        not_playing.append(player["name"])
+
+            if not_playing:
+                names_str = ", ".join(not_playing)
+                edit_alerts.append(f"\u26a0\ufe0f *{user_name}*: Replace {names_str}")
+
+        if edit_alerts:
+            msg_parts.append("\u2757 *Edit your team — these players are NOT playing:*\n")
+            msg_parts.extend(edit_alerts)
+            msg_parts.append(f"\n\U0001f449 https://ipl-fantasy-zeta.vercel.app/")
+        else:
+            msg_parts.append("\u2705 All submitted teams have only playing XI players!")
+
+    msg = "\n".join(msg_parts)
+    send_group(msg)
+    state.setdefault("last_dm", {})[squad_key] = True
+    print(f"    Squad announcement sent for {t1_name} vs {t2_name}")
+
+
 # ─── Main ───
 def main():
     now = datetime.now(IST)
@@ -943,11 +1050,11 @@ def main():
             }))
             for pm in pending_xi_matches:
                 update_playing_11_best_effort_basis(pm, db)
-                
+
         except Exception as e:
             print(f"PlayingXI update error: {e}")
 
-        # 3a. Auto-generate teams for matches that just went live with playingXI
+        # 3a. For matches with playingXI: send squad announcement + auto-generate missing teams
         try:
             live_matches = list(db.matches.find({
                 "status": {"$in": ["live", "toss_done"]},
@@ -955,6 +1062,13 @@ def main():
                 "playingXI.team2": {"$exists": True, "$ne": []},
             }))
             for lm in live_matches:
+                # 3a-i. Send squad announcement (once per match)
+                try:
+                    send_squad_announcement(db, lm, state)
+                except Exception as e:
+                    print(f"  Squad announcement error: {e}")
+
+                # 3a-ii. Auto-generate teams for users who missed deadline
                 rando_key = f"{lm['_id']}_randomized"
                 if state.get("last_dm", {}).get(rando_key):
                     continue
