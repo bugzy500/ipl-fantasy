@@ -30,6 +30,7 @@ if _env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 MONGO_URI = os.environ.get('MONGO_URI', 'SET_MONGO_URI_IN_ENV')
 WA_URL = "https://wa.dotsai.cloud/api/send/text"
+WA_MEDIA_URL = "https://wa.dotsai.cloud/api/send/media"
 WA_TOKEN = os.environ.get('WA_TOKEN', os.environ.get('WHATSAPP_API_TOKEN', 'SET_WA_TOKEN_IN_ENV'))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -157,6 +158,222 @@ def send_group(message):
         return False
 
 
+def send_group_gif(gif_url, caption=""):
+    """Send a GIF/image to the group with optional caption."""
+    try:
+        r = requests.post(WA_MEDIA_URL,
+                         json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                         headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                         timeout=15)
+        if r.ok:
+            print(f"    Group GIF sent")
+        else:
+            print(f"    Group GIF FAILED: {r.status_code} {r.text[:100]}")
+        return r.ok
+    except Exception as e:
+        print(f"    Group GIF error: {e}")
+        return False
+
+
+# ─── Cricket Milestone GIFs (curated) ───
+MILESTONE_GIFS = {
+    "fifty": [
+        "https://media1.tenor.com/m/jz7TRTWCi2kAAAAd/virat-kohli-kohli.gif",
+        "https://media1.tenor.com/m/Wx5g_9-uWWoAAAAd/dhoni-ipl.gif",
+    ],
+    "century": [
+        "https://media1.tenor.com/m/XCM2rT9l1d4AAAAd/kohli-century.gif",
+    ],
+    "wicket": [
+        "https://media1.tenor.com/m/rRXd-N4kfYAAAAAd/bumrah-wicket.gif",
+    ],
+    "big_wicket": [
+        "https://media1.tenor.com/m/EIzD9XZPK7IAAAAd/ipl-celebration.gif",
+    ],
+}
+
+
+def detect_milestones(db, match, scorecard, state):
+    """
+    Compare current scorecard with previous state to detect milestones.
+    Send hype messages + GIFs for each new milestone.
+    """
+    match_id = str(match["_id"])
+    milestone_key = f"{match_id}_milestones"
+    sent_milestones = set(state.get("last_dm", {}).get(milestone_key, []))
+    new_milestones = []
+
+    t1 = match.get("team1", "Team 1")
+    t2 = match.get("team2", "Team 2")
+
+    # Track innings scores for live scorecard
+    innings_summary = []
+
+    for i, innings in enumerate(scorecard.get("innings", [])):
+        score_detail = innings.get("score_detail", {})
+        runs = score_detail.get("runs", 0)
+        wickets = score_detail.get("wickets", 0)
+        overs = score_detail.get("overs", 0)
+        bat_team = innings.get("bat_team", f"Team {i+1}")
+        innings_summary.append(f"{bat_team}: {runs}/{wickets} ({overs} ov)")
+
+        # ── Batting milestones ──
+        for bat in innings.get("batting", []):
+            player_name = bat.get("name", "?")
+            runs_scored = bat.get("runs", 0)
+            balls = bat.get("balls", 0)
+            sixes = bat.get("sixes", 0)
+            fours = bat.get("fours", 0)
+
+            # Half century (50)
+            if runs_scored >= 50 and runs_scored < 100:
+                key = f"fifty_{player_name}_{i}"
+                if key not in sent_milestones:
+                    sr = round(runs_scored / balls * 100, 1) if balls > 0 else 0
+                    msg = (f"\U0001f4a5 *FIFTY!* {player_name} \U0001f525\n\n"
+                           f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    gifs = MILESTONE_GIFS.get("fifty", [])
+                    if gifs:
+                        send_group_gif(random.choice(gifs), msg)
+                    else:
+                        send_group(msg)
+                    new_milestones.append(key)
+
+            # Century (100)
+            if runs_scored >= 100:
+                key = f"century_{player_name}_{i}"
+                if key not in sent_milestones:
+                    sr = round(runs_scored / balls * 100, 1) if balls > 0 else 0
+                    msg = (f"\U0001f451 *CENTURY!!!* {player_name} \U0001f680\U0001f680\U0001f680\n\n"
+                           f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
+                           f"WHAT. A. KNOCK. \U0001f525\U0001f525\U0001f525\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    gifs = MILESTONE_GIFS.get("century", [])
+                    if gifs:
+                        send_group_gif(random.choice(gifs), msg)
+                    else:
+                        send_group(msg)
+                    new_milestones.append(key)
+
+            # 150 (special)
+            if runs_scored >= 150:
+                key = f"150_{player_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f92f *150 UP!* {player_name} is UNSTOPPABLE!\n\n"
+                           f"{runs_scored} ({balls}) | {fours}x4, {sixes}x6\n\n"
+                           f"This is MADNESS \U0001f525\U0001f525\U0001f525")
+                    send_group(msg)
+                    new_milestones.append(key)
+
+        # ── Bowling milestones ──
+        for bowl in innings.get("bowling", []):
+            bowler_name = bowl.get("name", "?")
+            wk = bowl.get("wickets", 0)
+            bowl_overs = bowl.get("overs", 0)
+            econ = bowl.get("economy", 0)
+            bowl_runs = bowl.get("runs", 0)
+
+            # 3 wickets
+            if wk >= 3 and wk < 5:
+                key = f"3wkt_{bowler_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f3af *{wk} WICKETS!* {bowler_name} is on fire!\n\n"
+                           f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_group(msg)
+                    new_milestones.append(key)
+
+            # 5-wicket haul (FIFER!)
+            if wk >= 5:
+                key = f"fifer_{bowler_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f525\U0001f525\U0001f525 *5-WICKET HAUL!* {bowler_name}\n\n"
+                           f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
+                           f"ABSOLUTE DESTRUCTION! \U0001f4a3\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_group(msg)
+                    new_milestones.append(key)
+
+            # Maiden over
+            if bowl.get("maidens", 0) > 0:
+                maiden_count = bowl.get("maidens", 0)
+                key = f"maiden_{bowler_name}_{i}_{maiden_count}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f6e1\ufe0f *MAIDEN OVER!* {bowler_name}\n\n"
+                           f"Dot dot dot dot dot dot! \U0001f525 Economy: {econ}")
+                    send_group(msg)
+                    new_milestones.append(key)
+
+        # ── Team score milestones ──
+        for target in [50, 100, 150, 200, 250, 300]:
+            if runs >= target:
+                key = f"team_{target}_{bat_team}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f4ca *{target} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
+                           f"{'Run rate: ' + str(round(runs / overs, 2)) + ' RPO' if overs > 0 else ''}")
+                    send_group(msg)
+                    new_milestones.append(key)
+
+        # ── Wicket alerts (new dismissals) ──
+        for bat in innings.get("batting", []):
+            if bat.get("is_out", False):
+                player_name = bat.get("name", "?")
+                runs_scored = bat.get("runs", 0)
+                balls = bat.get("balls", 0)
+                out_desc = bat.get("out_desc", "")
+                key = f"out_{player_name}_{i}"
+                if key not in sent_milestones:
+                    # Only alert for batsmen who scored 20+ (meaningful wicket)
+                    if runs_scored >= 20:
+                        msg = (f"\u274c *WICKET!* {player_name} — {runs_scored} ({balls})\n"
+                               f"{out_desc}\n\n"
+                               f"\U0001f4ca {' | '.join(innings_summary)}")
+                        gifs = MILESTONE_GIFS.get("big_wicket", [])
+                        if gifs:
+                            send_group_gif(random.choice(gifs), msg)
+                        else:
+                            send_group(msg)
+                        new_milestones.append(key)
+                    elif runs_scored < 5:
+                        # Cheap dismissal — drama!
+                        msg = (f"\U0001f480 *OUT!* {player_name} gone for {runs_scored} ({balls})\n"
+                               f"{out_desc}\n\n"
+                               f"\U0001f4ca {' | '.join(innings_summary)}")
+                        gifs = MILESTONE_GIFS.get("wicket", [])
+                        if gifs:
+                            send_group_gif(random.choice(gifs), msg)
+                        else:
+                            send_group(msg)
+                        new_milestones.append(key)
+
+    # ── Innings break ──
+    if len(scorecard.get("innings", [])) == 2:
+        first_inn = scorecard["innings"][0]
+        first_score = first_inn.get("score_detail", {})
+        if first_score.get("wickets", 0) == 10 or float(first_score.get("overs", 0)) >= 20:
+            key = f"innings_break_{match_id}"
+            if key not in sent_milestones:
+                bat_team = first_inn.get("bat_team", "?")
+                target = first_score.get("runs", 0) + 1
+                msg = (f"\U0001f3cf *INNINGS BREAK!*\n\n"
+                       f"{bat_team}: {first_score.get('runs', 0)}/{first_score.get('wickets', 0)} "
+                       f"({first_score.get('overs', 0)} ov)\n\n"
+                       f"\U0001f3af *Target: {target}*\n\n"
+                       f"Second innings coming up! \U0001f525")
+                send_group(msg)
+                new_milestones.append(key)
+
+    # Save milestones to state
+    if new_milestones:
+        all_sent = list(sent_milestones) + new_milestones
+        state.setdefault("last_dm", {})[milestone_key] = all_sent
+        print(f"    Milestones fired: {len(new_milestones)} ({', '.join(new_milestones)})")
+
+    # Return innings summary for live scorecard
+    return innings_summary
+
+
 # ─── Cricbuzz Scraping ───
 def get_live_ipl_matches():
     """Get live IPL match IDs from Cricbuzz live scores page."""
@@ -261,7 +478,19 @@ def parse_scorecard(data):
         if bowl_team_name not in result["teams"]:
             result["teams"].append(bowl_team_name)
 
-        inn = {"team": team_name, "batting": [], "bowling": []}
+        # Score details for this innings
+        score_details = innings.get("scoreDetails", {})
+        inn = {
+            "team": team_name,
+            "bat_team": team_name,
+            "score_detail": {
+                "runs": score_details.get("runs", 0),
+                "wickets": score_details.get("wickets", 0),
+                "overs": score_details.get("overs", 0),
+            },
+            "batting": [],
+            "bowling": [],
+        }
 
         # Parse batsmen
         batsmen_data = bat_team.get("batsmenData", {})
@@ -1111,12 +1340,20 @@ def main():
                 print(f"    Parsed: {len(scorecard['innings'])} innings, {total_bat} batters, {total_bowl} bowlers")
                 print(f"    Teams: {scorecard['teams']}")
 
-                # 6. Update MongoDB + recalculate points
+                # 6. Detect milestones and send hype messages
+                db_match_for_ms = db.matches.find_one({"cricApiMatchId": str(cb_id)})
+                if db_match_for_ms:
+                    try:
+                        detect_milestones(db, db_match_for_ms, scorecard, state)
+                    except Exception as ms_err:
+                        print(f"    Milestone detection error: {ms_err}")
+
+                # 7. Update MongoDB + recalculate points
                 result = update_match_scores(db, cb_id, scorecard)
                 if not result:
                     continue
 
-                # 7. Send group updates
+                # 8. Send group updates (live leaderboard)
                 send_whatsapp_updates(db, result["match"], result["team_scores"], state)
 
             except Exception as e:
