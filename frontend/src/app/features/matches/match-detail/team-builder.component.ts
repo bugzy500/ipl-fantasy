@@ -6,7 +6,7 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Player, PlayerRole, MatchStatus } from '../../../core/models/api.models';
+import { Player, PlayerRole, MatchStatus, PlayerPerformance } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 
 const BUDGET = 100;
@@ -57,6 +57,12 @@ const TEAM_SIZE = 11;
                   <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium truncate" style="color: var(--color-text);">{{ player.name }}</div>
                     <div class="text-xs" style="color: var(--color-text-muted);">{{ player.role }} · {{ player.credits }}cr</div>
+                    @if (playerScores().size > 0) {
+                      <div class="text-xs font-semibold"
+                           [style.color]="(playerScores().get(player._id) ?? 0) > 0 ? 'var(--color-accent-hover)' : (playerScores().get(player._id) ?? 0) < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                        {{ playerScores().get(player._id) ?? 0 }} pts
+                      </div>
+                    }
                   </div>
                 </div>
               }
@@ -242,6 +248,7 @@ export class TeamBuilderComponent implements OnInit {
   readonly existingTeam = signal<boolean>(false);
   readonly submitting = signal(false);
   readonly viewMode = signal(false);
+  readonly playerScores = signal<Map<string, number>>(new Map());
 
   readonly isDeadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
 
@@ -325,6 +332,21 @@ export class TeamBuilderComponent implements OnInit {
       },
       error: () => {},
     });
+
+    // Load player scores when deadline has passed
+    if (this.isDeadlinePassed()) {
+      this.api.getScores(this.matchId()).subscribe({
+        next: (scores) => {
+          const map = new Map<string, number>();
+          scores.forEach((s: any) => {
+            const pid = typeof s.playerId === 'string' ? s.playerId : s.playerId._id;
+            map.set(pid, s.fantasyPoints);
+          });
+          this.playerScores.set(map);
+        },
+        error: () => {},
+      });
+    }
   }
 
   isSelected(playerId: string) {

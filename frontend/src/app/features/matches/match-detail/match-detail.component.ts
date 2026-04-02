@@ -7,7 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
-import { Player, PlayerRole, MatchSquadResponse, FantasyTeam } from '../../../core/models/api.models';
+import { Player, PlayerRole, MatchSquadResponse, FantasyTeam, Prediction } from '../../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
 import { TeamBuilderComponent } from './team-builder.component';
 import { LeaderboardTabComponent } from './leaderboard-tab.component';
@@ -77,6 +77,35 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
           </div>
         </div>
 
+        <!-- Win Prediction -->
+        @if (data.match.status === 'upcoming' || data.match.status === 'toss_done') {
+          <div class="card-surface p-4 rounded-xl space-y-3" style="border: 1px solid var(--color-border);">
+            <div class="flex items-center gap-2">
+              <mat-icon style="color: var(--color-warning); font-size: 20px; width: 20px; height: 20px;">psychology</mat-icon>
+              <span class="text-display font-semibold text-sm" style="color: var(--color-text);">Predict the Winner (+10 bonus pts)</span>
+            </div>
+            <div class="flex gap-3">
+              <button class="prediction-btn flex-1"
+                      [class.prediction-btn--selected]="myPrediction() === data.match.team1"
+                      [disabled]="deadlinePassed() || predictionSaving()"
+                      (click)="submitPrediction(data.match.team1)">
+                {{ data.match.team1 }}
+              </button>
+              <button class="prediction-btn flex-1"
+                      [class.prediction-btn--selected]="myPrediction() === data.match.team2"
+                      [disabled]="deadlinePassed() || predictionSaving()"
+                      (click)="submitPrediction(data.match.team2)">
+                {{ data.match.team2 }}
+              </button>
+            </div>
+            @if (myPrediction()) {
+              <p class="text-xs text-center" style="color: var(--color-text-muted);">
+                You predicted {{ myPrediction() }} to win
+              </p>
+            }
+          </div>
+        }
+
         <!-- Tabs -->
         <mat-tab-group animationDuration="200ms">
           <mat-tab label="Build Team">
@@ -94,7 +123,7 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
 
           <mat-tab label="All Teams">
             @defer (on viewport) {
-              <app-all-teams-tab [matchId]="id()" [deadline]="data.match.deadline" />
+              <app-all-teams-tab [matchId]="id()" [deadline]="data.match.deadline" [matchStatus]="data.match.status" />
             } @placeholder {
               <div class="flex justify-center p-8"><mat-spinner /></div>
             }
@@ -125,8 +154,23 @@ export class MatchDetailComponent {
 
   private readonly api = inject(ApiService);
 
+  readonly myPrediction = signal<string | null>(null);
+  readonly predictionSaving = signal(false);
+
   readonly squadData = resource({
     loader: (): Promise<MatchSquadResponse> => firstValueFrom(this.api.getMatchSquad(this.id())),
+  });
+
+  readonly predictionData = resource({
+    loader: async (): Promise<any> => {
+      try {
+        const p = await firstValueFrom(this.api.getMyPrediction(this.id()));
+        if (p) this.myPrediction.set(p.predictedWinner);
+        return p;
+      } catch {
+        return null;
+      }
+    },
   });
 
   readonly formattedDate = computed(() => {
@@ -184,6 +228,18 @@ export class MatchDetailComponent {
     if (status === 'toss_done') return 'status-upcoming';
     return 'status-upcoming';
   });
+
+  submitPrediction(team: string) {
+    if (this.deadlinePassed()) return;
+    this.predictionSaving.set(true);
+    this.api.upsertPrediction({ matchId: this.id(), predictedWinner: team }).subscribe({
+      next: (p: any) => {
+        this.myPrediction.set(p.predictedWinner);
+        this.predictionSaving.set(false);
+      },
+      error: () => this.predictionSaving.set(false),
+    });
+  }
 
   ngOnDestroy() {
     clearInterval(this._timer);

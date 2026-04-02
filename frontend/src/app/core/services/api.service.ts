@@ -9,6 +9,8 @@ import {
   PlayerPerformance,
   MatchSquadResponse,
   Award,
+  Prediction,
+  SeasonInsightsResponse,
 } from '../models/api.models';
 
 /**
@@ -133,5 +135,23 @@ export class ApiService {
 
   autoLinkCricApiMatches() {
     return this.http.post<{ linked: number; results: any[] }>(`${this.base}/cricapi/auto-link`, {});
+  }
+
+  // ── Predictions ────────────────────────────────────────────────────────────
+  upsertPrediction(payload: { matchId: string; predictedWinner: string }) {
+    return this.http.post<Prediction>(`${this.base}/predictions`, payload);
+  }
+
+  getMatchPredictions(matchId: string) {
+    return this.http.get<Prediction[]>(`${this.base}/predictions/match/${matchId}`);
+  }
+
+  getMyPrediction(matchId: string) {
+    return this.http.get<Prediction | null>(`${this.base}/predictions/my/${matchId}`);
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  getSeasonInsights() {
+    return this.http.get<SeasonInsightsResponse>(`${this.base}/stats/season-insights`);
   }
 }

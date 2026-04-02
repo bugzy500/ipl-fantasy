@@ -14,6 +14,8 @@ const leaderboardRoutes = require('./routes/leaderboard.routes');
 const awardsRoutes = require('./routes/awards.routes');
 const { startCronJobs } = require('./services/cron.service');
 const cricapiRoutes = require('./routes/cricapi.routes');
+const predictionsRoutes = require('./routes/predictions.routes');
+const statsRoutes = require('./routes/stats.routes');
 
 const app = express();
 
@@ -41,6 +43,8 @@ app.use('/api/scores', scoreRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/awards', awardsRoutes);
 app.use('/api/cricapi', cricapiRoutes);
+app.use('/api/predictions', predictionsRoutes);
+app.use('/api/stats', statsRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Route not found' }));
