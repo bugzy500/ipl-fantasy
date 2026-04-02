@@ -34,14 +34,17 @@ function calculateFantasyPoints(perf, role) {
     }
 
     // Batting Strike Rate modifier (min 10 balls faced)
+    // Full spectrum: no dead zone between 70-130
     if (ballsFaced >= 10) {
       const sr = (runs / ballsFaced) * 100;
-      if (sr > 170) points += 6;
-      else if (sr > 150) points += 4;
-      else if (sr >= 130) points += 2;
-      else if (sr <= 70 && sr >= 60) points -= 2;
-      else if (sr < 60 && sr >= 50) points -= 4;
-      else if (sr < 50) points -= 6;
+      if (sr >= 170)      points += 6;   // explosive
+      else if (sr >= 150) points += 4;   // very fast
+      else if (sr >= 130) points += 2;   // good tempo
+      else if (sr >= 110) points += 2;   // above par
+      // 90-110 = par, no modifier
+      else if (sr >= 70)  points -= 4;   // slow innings
+      else if (sr >= 50)  points -= 6;   // very slow
+      else                points -= 8;   // anchored to death
     }
   }
 
@@ -56,14 +59,17 @@ function calculateFantasyPoints(perf, role) {
     else if (wickets >= 4) points += 8;
 
     // Bowling Economy Rate modifier (min 2 overs)
+    // Rewards tight bowling heavily — <4 eco in T20 is elite
     if (oversBowled >= 2) {
       const economy = runsConceded / oversBowled;
-      if (economy < 5) points += 6;
-      else if (economy < 6) points += 4;
-      else if (economy <= 7) points += 2;
-      else if (economy >= 10 && economy <= 11) points -= 2;
-      else if (economy > 11 && economy <= 12) points -= 4;
-      else if (economy > 12) points -= 6;
+      if (economy < 4)       points += 10;  // elite spell
+      else if (economy < 5)  points += 8;   // excellent
+      else if (economy < 6)  points += 6;   // very good
+      else if (economy < 8)  points += 4;   // good control
+      // 8-10 = par, no modifier
+      else if (economy <= 11) points -= 2;  // expensive
+      else if (economy <= 12) points -= 4;  // very expensive
+      else                    points -= 6;  // getting smashed
     }
   }
 

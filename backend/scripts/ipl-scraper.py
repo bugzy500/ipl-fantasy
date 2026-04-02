@@ -73,12 +73,14 @@ def calculate_fantasy_points(perf, role):
         pts -= 2.0
     if bf >= 10:
         sr = (runs / bf) * 100
-        if sr >= 170: pts += 6.0
-        elif sr >= 150: pts += 4.0
-        elif sr >= 130: pts += 2.0
-        elif sr < 50: pts -= 6.0
-        elif sr < 60: pts -= 4.0
-        elif sr < 70: pts -= 2.0
+        if sr >= 170: pts += 6.0      # explosive
+        elif sr >= 150: pts += 4.0    # very fast
+        elif sr >= 130: pts += 2.0    # good tempo
+        elif sr >= 110: pts += 2.0    # above par
+        # 90-110 = par, no modifier
+        elif sr >= 70: pts -= 4.0     # slow innings
+        elif sr >= 50: pts -= 6.0     # very slow
+        else: pts -= 8.0              # anchored to death
 
     # Bowling
     pts += wk * 25.0
@@ -89,12 +91,14 @@ def calculate_fantasy_points(perf, role):
     elif wk >= 3: pts += 4.0
     if overs >= 2:
         eco = perf.get("runsConceded", 0) / overs
-        if eco < 5: pts += 6.0
-        elif eco < 6: pts += 4.0
-        elif eco < 7: pts += 2.0
-        elif eco > 12: pts -= 6.0
-        elif eco > 11: pts -= 4.0
-        elif eco > 10: pts -= 2.0
+        if eco < 4: pts += 10.0       # elite spell
+        elif eco < 5: pts += 8.0      # excellent
+        elif eco < 6: pts += 6.0      # very good
+        elif eco < 8: pts += 4.0      # good control
+        # 8-10 = par, no modifier
+        elif eco <= 11: pts -= 2.0    # expensive
+        elif eco <= 12: pts -= 4.0    # very expensive
+        else: pts -= 6.0              # getting smashed
 
     # Fielding
     pts += perf.get("catches", 0) * 8.0
