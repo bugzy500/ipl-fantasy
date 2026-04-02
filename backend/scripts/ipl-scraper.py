@@ -572,6 +572,7 @@ def send_submission_reminders(db, state):
     40 min, 20 min, 10 min — showing who submitted vs who is pending.
     """
     now_ist = datetime.now(IST)
+    now_utc = datetime.utcnow()  # naive UTC for MongoDB queries
     league = db.leagues.find_one({"season": "IPL_2026"})
     if not league:
         return
@@ -580,9 +581,10 @@ def send_submission_reminders(db, state):
     members = list(db.users.find({"_id": {"$in": member_ids}}))
 
     # Find upcoming matches (deadline in next 45 min)
+    # MongoDB stores deadline as naive UTC, so query with naive UTC
     upcoming = list(db.matches.find({
         "status": "upcoming",
-        "deadline": {"$gt": now_ist, "$lt": now_ist + timedelta(minutes=45)}
+        "deadline": {"$gt": now_utc, "$lt": now_utc + timedelta(minutes=45)}
     }))
 
     for match in upcoming:
@@ -591,9 +593,9 @@ def send_submission_reminders(db, state):
         if not deadline:
             continue
 
-        # Make deadline timezone-aware if it isn't
+        # Make deadline timezone-aware — MongoDB stores as naive UTC
         if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=IST)
+            deadline = deadline.replace(tzinfo=timezone.utc).astimezone(IST)
 
         mins_left = (deadline - now_ist).total_seconds() / 60
 
