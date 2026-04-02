@@ -123,7 +123,7 @@ const TEAM_SIZE = 11;
         </div>
 
         <!-- Role filter tabs -->
-        <mat-button-toggle-group [(value)]="activeRoleFilter" class="w-full">
+        <mat-button-toggle-group [(value)]="activeRoleFilter" class="w-full" style="margin-top: 3rem">
           <mat-button-toggle value="ALL" class="flex-1">All</mat-button-toggle>
           @for (r of roleKeys; track r) {
             <mat-button-toggle [value]="r" class="flex-1">{{ r }}</mat-button-toggle>
