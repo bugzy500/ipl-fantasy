@@ -154,4 +154,8 @@ export class ApiService {
   getSeasonInsights() {
     return this.http.get<SeasonInsightsResponse>(`${this.base}/stats/season-insights`);
   }
+
+  getSeasonEndAwards() {
+    return this.http.get<any>(`${this.base}/stats/season-awards`);
+  }
 }

@@ -157,37 +157,46 @@ import { firstValueFrom } from 'rxjs';
           }
         </mat-tab>
 
-        <!-- Insights -->
-        <mat-tab label="Insights">
+        <!-- Season Awards -->
+        <mat-tab label="Season Awards">
           @defer (on immediate) {
-            @if (seasonInsights.isLoading()) {
+            @if (seasonEndAwards.isLoading()) {
               <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
             }
-            <div class="mt-6 space-y-4">
-              <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Season Highlights</h3>
-              @for (insight of seasonInsights.value()?.insights ?? []; track insight.type) {
+            <div class="mt-6 space-y-3">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">End-of-Season Awards</h3>
+                <span class="text-xs px-2 py-1 rounded-full" style="background: var(--color-accent-muted); color: var(--color-accent);">
+                  {{ seasonEndAwards.value()?.matchesPlayed ?? 0 }} matches
+                </span>
+              </div>
+              @for (award of seasonEndAwards.value()?.awards ?? []; track award.type) {
                 <div class="flex items-center gap-4 p-4 rounded-xl stagger-item fade-up"
                      style="background: var(--color-surface); border: 1px solid var(--color-border);">
                   <div class="w-10 h-10 flex items-center justify-center rounded-full"
-                       style="background: var(--color-accent-muted);">
-                    <mat-icon style="font-size: 20px; width: 20px; height: 20px; color: var(--color-accent-hover);">
-                      {{ insight.icon }}
+                       [style.background]="seasonAwardBg(award.type)">
+                    <mat-icon style="font-size: 20px; width: 20px; height: 20px;"
+                              [style.color]="seasonAwardColor(award.type)">
+                      {{ award.icon }}
                     </mat-icon>
                   </div>
                   <div class="flex-1">
                     <div class="font-medium text-sm" style="color: var(--color-text);">
-                      {{ insightTitle(insight.type) }}
+                      {{ award.title }}
                     </div>
                     <div class="text-xs" style="color: var(--color-text-muted);">
-                      {{ insight.userName }} — {{ insight.label }}
+                      {{ award.winner }}
                     </div>
+                  </div>
+                  <div class="text-display font-semibold text-sm" style="color: var(--color-accent-hover);">
+                    {{ award.value }}
                   </div>
                 </div>
               }
-              @if ((seasonInsights.value()?.insights?.length ?? 0) === 0 && !seasonInsights.isLoading()) {
+              @if ((seasonEndAwards.value()?.awards?.length ?? 0) === 0 && !seasonEndAwards.isLoading()) {
                 <div class="text-center py-16 card-surface">
-                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">insights</mat-icon>
-                  <p class="mt-3" style="color: var(--color-text-muted);">Play more matches to unlock insights!</p>
+                  <mat-icon style="font-size: 48px; width: 48px; height: 48px; color: var(--color-text-subtle);">military_tech</mat-icon>
+                  <p class="mt-3" style="color: var(--color-text-muted);">No completed matches yet. Awards will appear here!</p>
                 </div>
               }
             </div>
@@ -204,8 +213,15 @@ import { firstValueFrom } from 'rxjs';
             }
             <div class="mt-6 space-y-3">
               <div class="flex items-center justify-between mb-2">
-                <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Virtual Wallet</h3>
-                <span class="text-xs" style="color: var(--color-text-muted);">100 rs pot per match</span>
+                <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Hisaab Kitaab</h3>
+                <div class="text-right">
+                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 5 win</span>
+                  @if ((seasonInsights.value()?.awardPool ?? 0) > 0) {
+                    <div class="text-xs font-medium" style="color: var(--color-warning);">
+                      Award Pool: ₹{{ seasonInsights.value()?.awardPool }}
+                    </div>
+                  }
+                </div>
               </div>
               @for (entry of seasonInsights.value()?.money ?? []; track entry.userId; let i = $index) {
                 <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
@@ -276,6 +292,10 @@ export class LeaderboardComponent {
 
   readonly seasonInsights = resource({
     loader: () => firstValueFrom(this.api.getSeasonInsights()),
+  });
+
+  readonly seasonEndAwards = resource({
+    loader: () => firstValueFrom(this.api.getSeasonEndAwards()),
   });
 
   readonly matchLeaderboard = resource({
@@ -362,5 +382,25 @@ export class LeaderboardComponent {
       best_predictor: 'Best Predictor',
     };
     return map[type] ?? type;
+  }
+
+  seasonAwardBg(type: string): string {
+    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
+    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
+    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
+    if (warm.includes(type)) return 'rgba(245, 158, 11, 0.15)';
+    if (cool.includes(type)) return 'rgba(124, 58, 237, 0.15)';
+    if (fun.includes(type)) return 'rgba(239, 68, 68, 0.1)';
+    return 'var(--color-surface-elevated)';
+  }
+
+  seasonAwardColor(type: string): string {
+    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
+    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
+    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
+    if (warm.includes(type)) return '#F59E0B';
+    if (cool.includes(type)) return '#7C3AED';
+    if (fun.includes(type)) return '#EF4444';
+    return 'var(--color-text-muted)';
   }
 }
