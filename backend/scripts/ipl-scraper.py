@@ -159,36 +159,55 @@ def send_group(message):
 
 
 def send_group_gif(gif_url, caption=""):
-    """Send a GIF/image to the group with optional caption."""
+    """Send a GIF/image to the group with optional caption. Falls back to text if GIF fails."""
     try:
+        # Try as image first (works better with .gif URLs)
         r = requests.post(WA_MEDIA_URL,
-                         json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                         json={"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption},
                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                          timeout=15)
         if r.ok:
             print(f"    Group GIF sent")
-        else:
-            print(f"    Group GIF FAILED: {r.status_code} {r.text[:100]}")
-        return r.ok
+            return True
+        # Retry as video
+        r2 = requests.post(WA_MEDIA_URL,
+                          json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                          timeout=15)
+        if r2.ok:
+            print(f"    Group GIF sent (as video)")
+            return True
+        print(f"    Group GIF FAILED: {r.status_code} — falling back to text")
+        # Fallback: send as plain text
+        send_group(caption)
+        return False
     except Exception as e:
-        print(f"    Group GIF error: {e}")
+        print(f"    Group GIF error: {e} — falling back to text")
+        send_group(caption)
         return False
 
 
-# ─── Cricket Milestone GIFs (curated) ───
+# ─── Cricket Milestone GIFs (Giphy direct URLs — verified working) ───
 MILESTONE_GIFS = {
     "fifty": [
-        "https://media1.tenor.com/m/jz7TRTWCi2kAAAAd/virat-kohli-kohli.gif",
-        "https://media1.tenor.com/m/Wx5g_9-uWWoAAAAd/dhoni-ipl.gif",
+        "https://media3.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.gif",  # cricket celebration
+        "https://media4.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.gif",  # cricket clap
     ],
     "century": [
-        "https://media1.tenor.com/m/XCM2rT9l1d4AAAAd/kohli-century.gif",
+        "https://media0.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.gif",  # big celebration
+        "https://media3.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.gif",  # epic cricket
     ],
     "wicket": [
-        "https://media1.tenor.com/m/rRXd-N4kfYAAAAAd/bumrah-wicket.gif",
+        "https://media4.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.gif",  # ipl wicket
+        "https://media1.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.gif",  # cricket bowling
     ],
     "big_wicket": [
-        "https://media1.tenor.com/m/EIzD9XZPK7IAAAAd/ipl-celebration.gif",
+        "https://media3.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.gif",  # big celebration
+        "https://media1.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.gif",  # ipl hype
+    ],
+    "takeover": [
+        "https://media1.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.gif",  # ipl drama
+        "https://media0.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.gif",  # cricket overtake
     ],
 }
 
@@ -776,6 +795,111 @@ def update_match_scores(db, cb_match_id, scorecard):
     return {"match": match, "team_scores": team_scores}
 
 
+def detect_takeovers(db, match, team_scores, state):
+    """
+    Compare current leaderboard with previous snapshot.
+    When someone overtakes another, post analysis of what caused the swing.
+    """
+    match_key = str(match["_id"])
+    rankings_key = f"{match_key}_prev_rankings"
+
+    if not team_scores or len(team_scores) < 2:
+        return
+
+    # Build current ranking: {userName: {rank, points}}
+    current = {}
+    for i, ts in enumerate(team_scores):
+        current[ts["userName"]] = {"rank": i + 1, "points": ts["totalPoints"]}
+
+    # Load previous ranking from state
+    prev = state.get("last_dm", {}).get(rankings_key, {})
+
+    takeovers = []
+    if prev:
+        for name, cur_info in current.items():
+            prev_info = prev.get(name)
+            if not prev_info:
+                continue
+            cur_rank = cur_info["rank"]
+            prev_rank = prev_info["rank"]
+            cur_pts = cur_info["points"]
+            prev_pts = prev_info["points"]
+            points_gained = cur_pts - prev_pts
+
+            # Someone moved up at least 1 position AND gained points
+            if cur_rank < prev_rank and points_gained > 0:
+                # Find who they overtook
+                overtaken = []
+                for other_name, other_cur in current.items():
+                    if other_name == name:
+                        continue
+                    other_prev = prev.get(other_name, {})
+                    if not other_prev:
+                        continue
+                    # This person was above 'name' before but is now below
+                    if other_prev.get("rank", 99) < prev_rank and other_cur["rank"] > cur_rank:
+                        overtaken.append(other_name)
+
+                if overtaken:
+                    takeovers.append({
+                        "name": name,
+                        "prev_rank": prev_rank,
+                        "cur_rank": cur_rank,
+                        "points_gained": points_gained,
+                        "cur_points": cur_pts,
+                        "overtaken": overtaken,
+                    })
+
+    # Send takeover messages (max 2 per cycle to avoid spam)
+    takeover_dedup_key = f"{match_key}_takeovers_sent"
+    sent_takeovers = set(state.get("last_dm", {}).get(takeover_dedup_key, []))
+
+    for to in takeovers[:2]:
+        dedup = f"{to['name']}_rank{to['cur_rank']}"
+        if dedup in sent_takeovers:
+            continue
+
+        overtaken_names = ", ".join(to["overtaken"])
+        arrow = f"#{to['prev_rank']} \u27a1\ufe0f #{to['cur_rank']}"
+
+        # Build the reason — check what player events caused the swing
+        reason_parts = []
+        # Check recent milestones that could explain it
+        ms_key = f"{match_key}_milestones"
+        recent_ms = state.get("last_dm", {}).get(ms_key, [])
+        for ms in recent_ms[-5:]:  # last 5 milestones
+            if "fifty" in ms or "century" in ms:
+                player = ms.split("_")[1] if "_" in ms else ""
+                reason_parts.append(f"{player}'s batting surge")
+            elif "out_" in ms:
+                player = ms.replace("out_", "").rsplit("_", 1)[0]
+                reason_parts.append(f"{player}'s wicket")
+            elif "3wkt" in ms or "fifer" in ms:
+                player = ms.split("_")[1] if "_" in ms else ""
+                reason_parts.append(f"{player}'s bowling spell")
+
+        reason = ""
+        if reason_parts:
+            unique_reasons = list(dict.fromkeys(reason_parts))[:3]
+            reason = f"\n\U0001f4a1 Key events: {', '.join(unique_reasons)}"
+
+        msg = (f"\U0001f4c8 *TAKEOVER!* {to['name']} jumps to #{to['cur_rank']}! {arrow}\n\n"
+               f"\U0001f4aa +{to['points_gained']:.0f} pts \u2192 {to['cur_points']:.0f} total\n"
+               f"\U0001f6a8 Overtook: {overtaken_names}"
+               f"{reason}\n\n"
+               f"\U0001f525 The race is ON!")
+
+        gif = random.choice(MILESTONE_GIFS.get("takeover", MILESTONE_GIFS["fifty"]))
+        send_group_gif(gif, msg)
+        sent_takeovers.add(dedup)
+        print(f"    Takeover: {to['name']} #{to['prev_rank']}->{to['cur_rank']} (overtook {overtaken_names})")
+
+    # Save current rankings as previous for next run
+    state.setdefault("last_dm", {})[rankings_key] = current
+    if sent_takeovers:
+        state["last_dm"][takeover_dedup_key] = list(sent_takeovers)
+
+
 def send_whatsapp_updates(db, match, team_scores, state):
     """Send live/completion updates to group instead of individual DMs."""
     match_key = str(match["_id"])
@@ -1353,7 +1477,13 @@ def main():
                 if not result:
                     continue
 
-                # 8. Send group updates (live leaderboard)
+                # 8. Detect leaderboard takeovers
+                try:
+                    detect_takeovers(db, result["match"], result["team_scores"], state)
+                except Exception as tk_err:
+                    print(f"    Takeover detection error: {tk_err}")
+
+                # 9. Send group updates (live leaderboard)
                 send_whatsapp_updates(db, result["match"], result["team_scores"], state)
 
             except Exception as e:
