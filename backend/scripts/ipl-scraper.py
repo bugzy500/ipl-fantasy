@@ -18,9 +18,10 @@ from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
 
-# ─── Config (from .env — never hardcode credentials) ───
+# ─── Config ───
 import os
 from pathlib import Path
+# Load .env if exists (never hardcode credentials)
 _env_path = Path(__file__).parent / '.env'
 if _env_path.exists():
     for line in _env_path.read_text().splitlines():
