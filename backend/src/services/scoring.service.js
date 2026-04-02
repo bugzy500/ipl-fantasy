@@ -37,9 +37,9 @@ function calculateFantasyPoints(perf, role) {
     // Full spectrum: no dead zone between 70-130
     if (ballsFaced >= 10) {
       const sr = (runs / ballsFaced) * 100;
-      if (sr >= 170)      points += 6;   // explosive
-      else if (sr >= 150) points += 4;   // very fast
-      else if (sr >= 130) points += 2;   // good tempo
+      if (sr >= 200)      points += 8;   // monster innings
+      else if (sr >= 150) points += 6;   // explosive
+      else if (sr >= 130) points += 4;   // very fast
       else if (sr >= 110) points += 2;   // above par
       // 90-110 = par, no modifier
       else if (sr >= 70)  points -= 4;   // slow innings

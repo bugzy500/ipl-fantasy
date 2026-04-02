@@ -73,9 +73,9 @@ def calculate_fantasy_points(perf, role):
         pts -= 2.0
     if bf >= 10:
         sr = (runs / bf) * 100
-        if sr >= 170: pts += 6.0      # explosive
-        elif sr >= 150: pts += 4.0    # very fast
-        elif sr >= 130: pts += 2.0    # good tempo
+        if sr >= 200: pts += 8.0      # monster innings
+        elif sr >= 150: pts += 6.0    # explosive
+        elif sr >= 130: pts += 4.0    # very fast
         elif sr >= 110: pts += 2.0    # above par
         # 90-110 = par, no modifier
         elif sr >= 70: pts -= 4.0     # slow innings
