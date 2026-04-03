@@ -17,6 +17,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
+from infinity_max_brain import auto_build_and_submit, build_team_summary_message, INFINITY_MAX_USER_ID
 
 # ─── Config ───
 import os
@@ -30,10 +31,12 @@ if _env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 MONGO_URI = os.environ.get('MONGO_URI', 'SET_MONGO_URI_IN_ENV')
 WA_URL = "https://wa.dotsai.cloud/api/send/text"
+WA_MEDIA_URL = "https://wa.dotsai.cloud/api/send/media"
 WA_TOKEN = os.environ.get('WA_TOKEN', os.environ.get('WHATSAPP_API_TOKEN', 'SET_WA_TOKEN_IN_ENV'))
+APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://ipl-fantasy-live.vercel.app').rstrip('/')
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 IST = timezone(timedelta(hours=5, minutes=30))
-DM_INTERVAL_MIN = 15
+DM_INTERVAL_MIN = 3
 STATE_FILE = "/opt/services/ipl-scraper/state.json"
 
 # WhatsApp Group — Saanp Premier League
@@ -72,12 +75,14 @@ def calculate_fantasy_points(perf, role):
         pts -= 2.0
     if bf >= 10:
         sr = (runs / bf) * 100
-        if sr >= 170: pts += 6.0
-        elif sr >= 150: pts += 4.0
-        elif sr >= 130: pts += 2.0
-        elif sr < 50: pts -= 6.0
-        elif sr < 60: pts -= 4.0
-        elif sr < 70: pts -= 2.0
+        if sr >= 200: pts += 8.0      # monster innings
+        elif sr >= 150: pts += 6.0    # explosive
+        elif sr >= 130: pts += 4.0    # very fast
+        elif sr >= 110: pts += 2.0    # above par
+        # 90-110 = par, no modifier
+        elif sr >= 70: pts -= 4.0     # slow innings
+        elif sr >= 50: pts -= 6.0     # very slow
+        else: pts -= 8.0              # anchored to death
 
     # Bowling
     pts += wk * 25.0
@@ -88,12 +93,14 @@ def calculate_fantasy_points(perf, role):
     elif wk >= 3: pts += 4.0
     if overs >= 2:
         eco = perf.get("runsConceded", 0) / overs
-        if eco < 5: pts += 6.0
-        elif eco < 6: pts += 4.0
-        elif eco < 7: pts += 2.0
-        elif eco > 12: pts -= 6.0
-        elif eco > 11: pts -= 4.0
-        elif eco > 10: pts -= 2.0
+        if eco < 4: pts += 10.0       # elite spell
+        elif eco < 5: pts += 8.0      # excellent
+        elif eco < 6: pts += 6.0      # very good
+        elif eco < 8: pts += 4.0      # good control
+        # 8-10 = par, no modifier
+        elif eco <= 11: pts -= 2.0    # expensive
+        elif eco <= 12: pts -= 4.0    # very expensive
+        else: pts -= 6.0              # getting smashed
 
     # Fielding
     pts += perf.get("catches", 0) * 8.0
@@ -155,6 +162,263 @@ def send_group(message):
     except Exception as e:
         print(f"    Group msg error: {e}")
         return False
+
+
+def send_group_gif(gif_url, caption=""):
+    """Send a GIF/image to the group with optional caption. Falls back to text if GIF fails."""
+    try:
+        # Try as image first (works better with .gif URLs)
+        r = requests.post(WA_MEDIA_URL,
+                         json={"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption},
+                         headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                         timeout=15)
+        if r.ok:
+            print(f"    Group GIF sent")
+            return True
+        # Retry as video
+        r2 = requests.post(WA_MEDIA_URL,
+                          json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                          timeout=15)
+        if r2.ok:
+            print(f"    Group GIF sent (as video)")
+            return True
+        print(f"    Group GIF FAILED: {r.status_code} — falling back to text")
+        # Fallback: send as plain text
+        send_group(caption)
+        return False
+    except Exception as e:
+        print(f"    Group GIF error: {e} — falling back to text")
+        send_group(caption)
+        return False
+
+
+# ─── Media Pool (all verified 200 OK) ───
+# Variety is king: GIFs, avatars, memes — random mix keeps group hyped
+AVATAR_BASE_URL = "https://dotsai.in/spl-avatars"
+
+GIFS = {
+    "celebration": [
+        "https://media3.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.gif",
+        "https://media4.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.gif",
+        "https://media0.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.gif",
+        "https://media3.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.gif",
+        "https://media0.giphy.com/media/qia2rxxWQ6B01pOf10/giphy.gif",
+        "https://media1.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.gif",
+    ],
+    "wicket": [
+        "https://media4.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.gif",
+        "https://media1.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.gif",
+        "https://media3.giphy.com/media/THIImhwN2fV2q8EOvq/giphy.gif",
+        "https://media2.giphy.com/media/xB68elnmZURlOlOUZ1/giphy.gif",
+        "https://media4.giphy.com/media/2CUJFvoRXDrUeG1mOS/giphy.gif",
+    ],
+    "drama": [
+        "https://media1.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.gif",
+        "https://media0.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.gif",
+        "https://media3.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.gif",
+        "https://media1.giphy.com/media/evVKsrjZEqVVWvE2VR/giphy.gif",
+        "https://media1.giphy.com/media/ksioubEKq0ufcB4z1S/giphy.gif",
+    ],
+}
+
+# All GIFs in one flat pool for truly random picks
+ALL_GIFS = GIFS["celebration"] + GIFS["wicket"] + GIFS["drama"]
+
+
+def pick_media(category, user_id=None):
+    """
+    Pick media for a milestone/takeover — returns (url, is_avatar).
+    Mix strategy:
+      - 40% chance: personalized cartoon avatar (if user_id available)
+      - 30% chance: category-specific GIF
+      - 30% chance: random GIF from full pool
+    This keeps it unpredictable — sometimes avatar, sometimes funny GIF.
+    """
+    roll = random.random()
+
+    # 40% avatar (only if user_id exists)
+    if user_id and roll < 0.4:
+        return f"{AVATAR_BASE_URL}/{user_id}.png", True
+
+    # 30% category-specific
+    if roll < 0.7:
+        pool = GIFS.get(category, ALL_GIFS)
+        return random.choice(pool), False
+
+    # 30% any random GIF
+    return random.choice(ALL_GIFS), False
+
+
+def send_milestone_media(msg, category="celebration", user_id=None):
+    """Send a milestone message with mixed media — GIF, avatar, or text fallback."""
+    url, is_avatar = pick_media(category, user_id)
+    send_group_gif(url, msg)
+
+
+def detect_milestones(db, match, scorecard, state):
+    """
+    Compare current scorecard with previous state to detect milestones.
+    Send hype messages + GIFs for each new milestone.
+    """
+    match_id = str(match["_id"])
+    milestone_key = f"{match_id}_milestones"
+    sent_milestones = set(state.get("last_dm", {}).get(milestone_key, []))
+    new_milestones = []
+
+    t1 = match.get("team1", "Team 1")
+    t2 = match.get("team2", "Team 2")
+
+    # Track innings scores for live scorecard
+    innings_summary = []
+
+    for i, innings in enumerate(scorecard.get("innings", [])):
+        score_detail = innings.get("score_detail", {})
+        runs = score_detail.get("runs", 0)
+        wickets = score_detail.get("wickets", 0)
+        overs = score_detail.get("overs", 0)
+        bat_team = innings.get("bat_team", f"Team {i+1}")
+        innings_summary.append(f"{bat_team}: {runs}/{wickets} ({overs} ov)")
+
+        # ── Batting milestones ──
+        for bat in innings.get("batting", []):
+            player_name = bat.get("name", "?")
+            runs_scored = bat.get("runs", 0)
+            balls = bat.get("balls", 0)
+            sixes = bat.get("sixes", 0)
+            fours = bat.get("fours", 0)
+
+            # Half century (50)
+            if runs_scored >= 50 and runs_scored < 100:
+                key = f"fifty_{player_name}_{i}"
+                if key not in sent_milestones:
+                    sr = round(runs_scored / balls * 100, 1) if balls > 0 else 0
+                    msg = (f"\U0001f4a5 *FIFTY!* {player_name} \U0001f525\n\n"
+                           f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_milestone_media(msg, "celebration")
+                    new_milestones.append(key)
+
+            # Century (100)
+            if runs_scored >= 100:
+                key = f"century_{player_name}_{i}"
+                if key not in sent_milestones:
+                    sr = round(runs_scored / balls * 100, 1) if balls > 0 else 0
+                    msg = (f"\U0001f451 *CENTURY!!!* {player_name} \U0001f680\U0001f680\U0001f680\n\n"
+                           f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
+                           f"WHAT. A. KNOCK. \U0001f525\U0001f525\U0001f525\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_milestone_media(msg, "celebration")
+                    new_milestones.append(key)
+
+            # 150 (special)
+            if runs_scored >= 150:
+                key = f"150_{player_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f92f *150 UP!* {player_name} is UNSTOPPABLE!\n\n"
+                           f"{runs_scored} ({balls}) | {fours}x4, {sixes}x6\n\n"
+                           f"This is MADNESS \U0001f525\U0001f525\U0001f525")
+                    send_milestone_media(msg, "celebration")
+                    new_milestones.append(key)
+
+        # ── Bowling milestones ──
+        for bowl in innings.get("bowling", []):
+            bowler_name = bowl.get("name", "?")
+            wk = bowl.get("wickets", 0)
+            bowl_overs = bowl.get("overs", 0)
+            econ = bowl.get("economy", 0)
+            bowl_runs = bowl.get("runs", 0)
+
+            # 3 wickets
+            if wk >= 3 and wk < 5:
+                key = f"3wkt_{bowler_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f3af *{wk} WICKETS!* {bowler_name} is on fire!\n\n"
+                           f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_milestone_media(msg, "wicket")
+                    new_milestones.append(key)
+
+            # 5-wicket haul (FIFER!)
+            if wk >= 5:
+                key = f"fifer_{bowler_name}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f525\U0001f525\U0001f525 *5-WICKET HAUL!* {bowler_name}\n\n"
+                           f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
+                           f"ABSOLUTE DESTRUCTION! \U0001f4a3\n\n"
+                           f"\U0001f4ca {' | '.join(innings_summary)}")
+                    send_milestone_media(msg, "wicket")
+                    new_milestones.append(key)
+
+            # Maiden over
+            if bowl.get("maidens", 0) > 0:
+                maiden_count = bowl.get("maidens", 0)
+                key = f"maiden_{bowler_name}_{i}_{maiden_count}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f6e1\ufe0f *MAIDEN OVER!* {bowler_name}\n\n"
+                           f"Dot dot dot dot dot dot! \U0001f525 Economy: {econ}")
+                    send_milestone_media(msg, "wicket")
+                    new_milestones.append(key)
+
+        # ── Team score milestones ──
+        for target in [50, 100, 150, 200, 250, 300]:
+            if runs >= target:
+                key = f"team_{target}_{bat_team}_{i}"
+                if key not in sent_milestones:
+                    msg = (f"\U0001f4ca *{target} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
+                           f"{'Run rate: ' + str(round(runs / overs, 2)) + ' RPO' if overs > 0 else ''}")
+                    send_milestone_media(msg, "celebration")
+                    new_milestones.append(key)
+
+        # ── Wicket alerts (new dismissals) ──
+        for bat in innings.get("batting", []):
+            if bat.get("is_out", False):
+                player_name = bat.get("name", "?")
+                runs_scored = bat.get("runs", 0)
+                balls = bat.get("balls", 0)
+                out_desc = bat.get("out_desc", "")
+                key = f"out_{player_name}_{i}"
+                if key not in sent_milestones:
+                    # Only alert for batsmen who scored 20+ (meaningful wicket)
+                    if runs_scored >= 20:
+                        msg = (f"\u274c *WICKET!* {player_name} — {runs_scored} ({balls})\n"
+                               f"{out_desc}\n\n"
+                               f"\U0001f4ca {' | '.join(innings_summary)}")
+                        send_milestone_media(msg, "wicket")
+                        new_milestones.append(key)
+                    elif runs_scored < 5:
+                        # Cheap dismissal — drama!
+                        msg = (f"\U0001f480 *OUT!* {player_name} gone for {runs_scored} ({balls})\n"
+                               f"{out_desc}\n\n"
+                               f"\U0001f4ca {' | '.join(innings_summary)}")
+                        send_milestone_media(msg, "drama")
+                        new_milestones.append(key)
+
+    # ── Innings break ──
+    if len(scorecard.get("innings", [])) == 2:
+        first_inn = scorecard["innings"][0]
+        first_score = first_inn.get("score_detail", {})
+        if first_score.get("wickets", 0) == 10 or float(first_score.get("overs", 0)) >= 20:
+            key = f"innings_break_{match_id}"
+            if key not in sent_milestones:
+                bat_team = first_inn.get("bat_team", "?")
+                target = first_score.get("runs", 0) + 1
+                msg = (f"\U0001f3cf *INNINGS BREAK!*\n\n"
+                       f"{bat_team}: {first_score.get('runs', 0)}/{first_score.get('wickets', 0)} "
+                       f"({first_score.get('overs', 0)} ov)\n\n"
+                       f"\U0001f3af *Target: {target}*\n\n"
+                       f"Second innings coming up! \U0001f525")
+                send_milestone_media(msg, "drama")
+                new_milestones.append(key)
+
+    # Save milestones to state
+    if new_milestones:
+        all_sent = list(sent_milestones) + new_milestones
+        state.setdefault("last_dm", {})[milestone_key] = all_sent
+        print(f"    Milestones fired: {len(new_milestones)} ({', '.join(new_milestones)})")
+
+    # Return innings summary for live scorecard
+    return innings_summary
 
 
 # ─── Cricbuzz Scraping ───
@@ -261,7 +525,19 @@ def parse_scorecard(data):
         if bowl_team_name not in result["teams"]:
             result["teams"].append(bowl_team_name)
 
-        inn = {"team": team_name, "batting": [], "bowling": []}
+        # Score details for this innings
+        score_details = innings.get("scoreDetails", {})
+        inn = {
+            "team": team_name,
+            "bat_team": team_name,
+            "score_detail": {
+                "runs": score_details.get("runs", 0),
+                "wickets": score_details.get("wickets", 0),
+                "overs": score_details.get("overs", 0),
+            },
+            "batting": [],
+            "bowling": [],
+        }
 
         # Parse batsmen
         batsmen_data = bat_team.get("batsmenData", {})
@@ -477,6 +753,35 @@ def update_match_scores(db, cb_match_id, scorecard):
         print(f"    No performances mapped for {match.get('team1')} vs {match.get('team2')}")
         return None
 
+    # Auto-populate playingXI from scorecard data if not already set
+    existing_xi = match.get("playingXI", {})
+    if not existing_xi.get("team1") or not existing_xi.get("team2"):
+        # Collect player IDs by franchise, matched to team1/team2
+        t1_abbr = match.get("team1", "")
+        t2_abbr = match.get("team2", "")
+        xi_team1 = set()
+        xi_team2 = set()
+        for pid in performances:
+            player = next((p for p in players if str(p["_id"]) == pid), None)
+            if not player:
+                continue
+            franchise = player.get("franchise", "")
+            if franchise == t1_abbr:
+                xi_team1.add(player["_id"])
+            elif franchise == t2_abbr:
+                xi_team2.add(player["_id"])
+
+        # Only set if we found at least 11 players per side (full XI)
+        if len(xi_team1) >= 11 or len(xi_team2) >= 11:
+            update_xi = {}
+            if len(xi_team1) >= 11 and not existing_xi.get("team1"):
+                update_xi["playingXI.team1"] = list(xi_team1)[:11]
+            if len(xi_team2) >= 11 and not existing_xi.get("team2"):
+                update_xi["playingXI.team2"] = list(xi_team2)[:11]
+            if update_xi:
+                db.matches.update_one({"_id": match_id}, {"$set": update_xi})
+                print(f"    Auto-set playingXI: team1={len(xi_team1)}, team2={len(xi_team2)}")
+
     # Upsert performances + calculate fantasy points
     player_points = {}
     for pid, perf in performances.items():
@@ -493,6 +798,8 @@ def update_match_scores(db, cb_match_id, scorecard):
 
     # Recalculate fantasy teams
     teams_cursor = list(db.fantasyteams.find({"matchId": match_id}))
+    league = db.leagues.find_one({"season": "IPL_2026"}, {"members": 1})
+    member_id_set = {str(uid) for uid in league.get("members", [])} if league else set()
     team_scores = []
     for team in teams_cursor:
         total = 0.0
@@ -505,7 +812,7 @@ def update_match_scores(db, cb_match_id, scorecard):
         db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": {"totalPoints": total}})
 
         user = db.users.find_one({"_id": team["userId"]})
-        if user:
+        if user and (not member_id_set or str(team["userId"]) in member_id_set):
             team_scores.append({
                 "userId": str(team["userId"]),
                 "userName": user.get("name", "?"),
@@ -516,6 +823,128 @@ def update_match_scores(db, cb_match_id, scorecard):
     team_scores.sort(key=lambda x: x["totalPoints"], reverse=True)
     print(f"    Updated {len(performances)} players, {len(teams_cursor)} teams")
     return {"match": match, "team_scores": team_scores}
+
+
+def detect_takeovers(db, match, team_scores, state):
+    """
+    Compare current leaderboard with previous snapshot.
+    When someone overtakes another, post analysis of what caused the swing.
+    """
+    match_key = str(match["_id"])
+    rankings_key = f"{match_key}_prev_rankings"
+
+    if not team_scores or len(team_scores) < 2:
+        return
+
+    # Build current ranking: {userName: {rank, points, userId}}
+    current = {}
+    for i, ts in enumerate(team_scores):
+        current[ts["userName"]] = {"rank": i + 1, "points": ts["totalPoints"], "userId": ts.get("userId", "")}
+
+    # Load previous ranking from state
+    prev = state.get("last_dm", {}).get(rankings_key, {})
+
+    takeovers = []
+    if prev:
+        for name, cur_info in current.items():
+            prev_info = prev.get(name)
+            if not prev_info:
+                continue
+            cur_rank = cur_info["rank"]
+            prev_rank = prev_info["rank"]
+            cur_pts = cur_info["points"]
+            prev_pts = prev_info["points"]
+            points_gained = cur_pts - prev_pts
+
+            # Someone moved up at least 1 position AND gained points
+            if cur_rank < prev_rank and points_gained > 0:
+                # Find who they overtook
+                overtaken = []
+                for other_name, other_cur in current.items():
+                    if other_name == name:
+                        continue
+                    other_prev = prev.get(other_name, {})
+                    if not other_prev:
+                        continue
+                    # This person was above 'name' before but is now below
+                    if other_prev.get("rank", 99) < prev_rank and other_cur["rank"] > cur_rank:
+                        overtaken.append(other_name)
+
+                if overtaken:
+                    takeovers.append({
+                        "name": name,
+                        "userId": cur_info.get("userId", ""),
+                        "prev_rank": prev_rank,
+                        "cur_rank": cur_rank,
+                        "points_gained": points_gained,
+                        "cur_points": cur_pts,
+                        "overtaken": overtaken,
+                    })
+
+    # Send takeover messages (max 2 per cycle to avoid spam)
+    takeover_dedup_key = f"{match_key}_takeovers_sent"
+    sent_takeovers = set(state.get("last_dm", {}).get(takeover_dedup_key, []))
+
+    for to in takeovers[:2]:
+        dedup = f"{to['name']}_rank{to['cur_rank']}"
+        if dedup in sent_takeovers:
+            continue
+
+        overtaken_names = ", ".join(to["overtaken"])
+        arrow = f"#{to['prev_rank']} \u27a1\ufe0f #{to['cur_rank']}"
+
+        # Build the reason — check what player events caused the swing
+        reason_parts = []
+        # Check recent milestones that could explain it
+        ms_key = f"{match_key}_milestones"
+        recent_ms = state.get("last_dm", {}).get(ms_key, [])
+        for ms in recent_ms[-5:]:  # last 5 milestones
+            if "fifty" in ms or "century" in ms:
+                player = ms.split("_")[1] if "_" in ms else ""
+                reason_parts.append(f"{player}'s batting surge")
+            elif "out_" in ms:
+                player = ms.replace("out_", "").rsplit("_", 1)[0]
+                reason_parts.append(f"{player}'s wicket")
+            elif "3wkt" in ms or "fifer" in ms:
+                player = ms.split("_")[1] if "_" in ms else ""
+                reason_parts.append(f"{player}'s bowling spell")
+
+        reason = ""
+        if reason_parts:
+            unique_reasons = list(dict.fromkeys(reason_parts))[:3]
+            reason = f"\n\U0001f4a1 Key events: {', '.join(unique_reasons)}"
+
+        msg = (f"\U0001f4c8 *TAKEOVER!* {to['name']} jumps to #{to['cur_rank']}! {arrow}\n\n"
+               f"\U0001f4aa +{to['points_gained']:.0f} pts \u2192 {to['cur_points']:.0f} total\n"
+               f"\U0001f6a8 Overtook: {overtaken_names}"
+               f"{reason}\n\n"
+               f"\U0001f525 The race is ON!")
+
+        # Tiered media based on rank reached:
+        #   1st-2nd: solid celebration GIF
+        #   3rd: normal random GIF
+        #   4th-5th: cartoon avatar
+        #   6th+: just text, no media
+        rank = to["cur_rank"]
+        if rank <= 2:
+            send_group_gif(random.choice(GIFS["celebration"]), msg)
+        elif rank == 3:
+            send_group_gif(random.choice(ALL_GIFS), msg)
+        elif rank <= 5:
+            uid = to.get("userId", "")
+            if uid:
+                send_group_gif(f"{AVATAR_BASE_URL}/{uid}.png", msg)
+            else:
+                send_group(msg)
+        else:
+            send_group(msg)
+        sent_takeovers.add(dedup)
+        print(f"    Takeover: {to['name']} #{to['prev_rank']}->{to['cur_rank']} (overtook {overtaken_names})")
+
+    # Save current rankings as previous for next run
+    state.setdefault("last_dm", {})[rankings_key] = current
+    if sent_takeovers:
+        state["last_dm"][takeover_dedup_key] = list(sent_takeovers)
 
 
 def send_whatsapp_updates(db, match, team_scores, state):
@@ -538,7 +967,7 @@ def send_whatsapp_updates(db, match, team_scores, state):
 
     is_complete = match.get("status") == "completed"
     all_scores = team_scores  # already sorted desc
-    top = all_scores[:10]  # show all in group
+    top = all_scores[:15]
 
     if is_complete:
         medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
@@ -548,8 +977,8 @@ def send_whatsapp_updates(db, match, team_scores, state):
         )
         msg = (f"\U0001f3c6 *{match['team1']} vs {match['team2']}* — Match Complete!\n\n"
                f"{podium}\n\n"
-               f"\U0001f4b0 Winner takes ₹{len(all_scores) * 100} pot!\n"
-               f"Full breakdown in the app \U0001f449 https://ipl.bugzy500.com")
+               f"\U0001f4b0 Winner takes ₹{len(all_scores) * 60} pot!\n"
+               f"Full breakdown in the app \U0001f449 {APP_BASE_URL}")
         send_group(msg)
         # Mark as final so we never message again for this match
         state.setdefault("last_dm", {})[final_key] = True
@@ -559,7 +988,7 @@ def send_whatsapp_updates(db, match, team_scores, state):
             for i, u in enumerate(top)
         )
         msg = (f"\U0001f4ca *Live — {match['team1']} vs {match['team2']}*\n\n"
-               f"{lb_text}\n\n"
+               f"*Top 15 right now:*\n{lb_text}\n\n"
                f"Points updating every 3 min! \U0001f525")
         send_group(msg)
 
@@ -629,11 +1058,12 @@ def send_submission_reminders(db, state):
                 urgency = {40: "\u23f0", 20: "\u26a0\ufe0f", 10: "\U0001f6a8"}
                 mins_display = round(mins_left)
 
-                msg = (f"{urgency.get(tier_min, '\u23f0')} *{match['team1']} vs {match['team2']}* — "
+                reminder_emoji = urgency.get(tier_min, "⏰")
+                msg = (f"{reminder_emoji} *{match['team1']} vs {match['team2']}* — "
                        f"*{mins_display} min* to deadline!\n\n"
                        f"\u2705 *Submitted:* {submitted_text}\n"
                        f"\u274c *Pending:* {pending_text}\n\n"
-                       f"Lock your team now! \U0001f449 https://ipl-fantasy-zeta.vercel.app")
+                       f"Lock your team now! \U0001f449 {APP_BASE_URL}")
 
                 send_group(msg)
                 state.setdefault("last_dm", {})[tier_key] = True
@@ -818,6 +1248,7 @@ def update_playing_11_best_effort_basis(match: dict, db) -> bool:
     match_id  = match["_id"]
     team1_abbr = match.get("team1", "")
     team2_abbr = match.get("team2", "")
+    cb_match_id = str(match.get("cricApiMatchId", "") or "")
 
     existing_xi = match.get("playingXI", {})
     team1_ids   = existing_xi.get("team1", [])
@@ -832,7 +1263,8 @@ def update_playing_11_best_effort_basis(match: dict, db) -> bool:
     try:
         from fetch_playing_11 import FetchActualPlaying11
         fetcher = FetchActualPlaying11()
-        xi_names = fetcher.fetch(team1_abbr, team2_abbr, match_id)
+        # Use the Cricbuzz match ID when we have it. The Mongo _id is useless here.
+        xi_names = fetcher.fetch(team1_abbr, team2_abbr, cb_match_id)
         # xi_names = {"team1": ["Player A", ...], "team2": ["Player B", ...]}
     except Exception as e:
         print(f"    PlayingXI fetch error for {team1_abbr} vs {team2_abbr}: {e}")
@@ -900,6 +1332,84 @@ def update_playing_11_best_effort_basis(match: dict, db) -> bool:
 
 
 
+# ─── Squad Announced: notify who needs to edit their team ───
+def send_squad_announcement(db, match, state):
+    """
+    When playingXI gets populated for a match, send a WhatsApp message to the group:
+    1. Full playing XI for both teams
+    2. For each user who already submitted: which players are NOT in the playing XI
+    """
+    match_id = match["_id"]
+    squad_key = f"{match_id}_squad_announced"
+
+    # Already sent?
+    if state.get("last_dm", {}).get(squad_key):
+        return
+
+    playing_xi = match.get("playingXI", {})
+    team1_ids = [str(pid) for pid in playing_xi.get("team1", [])]
+    team2_ids = [str(pid) for pid in playing_xi.get("team2", [])]
+
+    if not team1_ids or not team2_ids:
+        return
+
+    all_playing_ids = set(team1_ids + team2_ids)
+
+    # Get player names for playing XI
+    team1_players = list(db.players.find({"_id": {"$in": [ObjectId(pid) for pid in team1_ids]}}))
+    team2_players = list(db.players.find({"_id": {"$in": [ObjectId(pid) for pid in team2_ids]}}))
+
+    t1_name = match.get("team1", "Team 1")
+    t2_name = match.get("team2", "Team 2")
+
+    t1_names = ", ".join(p["name"] for p in team1_players)
+    t2_names = ", ".join(p["name"] for p in team2_players)
+
+    # Build the message
+    msg_parts = [
+        f"\U0001f4cb *Playing XI Announced!*\n",
+        f"\U0001f7e0 *{t1_name}:*\n{t1_names}\n",
+        f"\U0001f535 *{t2_name}:*\n{t2_names}\n",
+    ]
+
+    # Check submitted teams for non-playing players
+    league = db.leagues.find_one({"season": "IPL_2026"})
+    if league:
+        member_ids = league.get("members", [])
+        submitted_teams = list(db.fantasyteams.find({"matchId": match_id, "userId": {"$in": member_ids}}))
+
+        edit_alerts = []
+        for team in submitted_teams:
+            user = db.users.find_one({"_id": team["userId"]})
+            if not user:
+                continue
+            user_name = user.get("name", "?")
+            team_player_ids = [str(pid) for pid in team.get("players", [])]
+            not_playing = []
+
+            for pid in team_player_ids:
+                if pid not in all_playing_ids:
+                    player = db.players.find_one({"_id": ObjectId(pid)})
+                    if player:
+                        not_playing.append(player["name"])
+
+            if not_playing:
+                names_str = ", ".join(not_playing)
+                edit_alerts.append(f"\u26a0\ufe0f *{user_name}*: Replace {names_str}")
+
+        if edit_alerts:
+            msg_parts.append("\u2757 *Edit your team — these players are NOT playing:*\n")
+            msg_parts.extend(edit_alerts)
+            msg_parts.append(f"\n\U0001f449 {APP_BASE_URL}/")
+        else:
+            msg_parts.append("\u2705 All submitted teams have only playing XI players!")
+
+    msg = "\n".join(msg_parts)
+    send_group(msg)
+    state.setdefault("last_dm", {})[squad_key] = True
+    print(f"    Squad announcement sent for {t1_name} vs {t2_name}")
+
+
 # ─── Main ───
 def main():
     now = datetime.now(IST)
@@ -943,11 +1453,32 @@ def main():
             }))
             for pm in pending_xi_matches:
                 update_playing_11_best_effort_basis(pm, db)
-                
+
         except Exception as e:
             print(f"PlayingXI update error: {e}")
 
-        # 3a. Auto-generate teams for matches that just went live with playingXI
+        # 3-pre. Infinity Max early submission — upcoming matches with playingXI and deadline < 60min
+        try:
+            now_utc = datetime.utcnow()
+            upcoming_with_xi = list(db.matches.find({
+                "status": {"$in": ["upcoming", "toss_done"]},
+                "deadline": {"$gt": now_utc, "$lt": now_utc + timedelta(minutes=60)},
+                "playingXI.team1": {"$exists": True, "$ne": []},
+                "playingXI.team2": {"$exists": True, "$ne": []},
+            }))
+            for um in upcoming_with_xi:
+                try:
+                    im_result = auto_build_and_submit(db, um, state)
+                    if im_result:
+                        im_msg = build_team_summary_message(im_result, um)
+                        if im_msg:
+                            send_group(im_msg)
+                except Exception as im_err:
+                    print(f"  Infinity Max early-submit error: {im_err}")
+        except Exception as e:
+            print(f"  Infinity Max early-submit scan error: {e}")
+
+        # 3a. For matches with playingXI: send squad announcement + auto-generate missing teams
         try:
             live_matches = list(db.matches.find({
                 "status": {"$in": ["live", "toss_done"]},
@@ -955,6 +1486,23 @@ def main():
                 "playingXI.team2": {"$exists": True, "$ne": []},
             }))
             for lm in live_matches:
+                # 3a-i. Send squad announcement (once per match)
+                try:
+                    send_squad_announcement(db, lm, state)
+                except Exception as e:
+                    print(f"  Squad announcement error: {e}")
+
+                # 3a-ii. Infinity Max smart team builder (runs BEFORE randomizer)
+                try:
+                    im_result = auto_build_and_submit(db, lm, state)
+                    if im_result:
+                        im_msg = build_team_summary_message(im_result, lm)
+                        if im_msg:
+                            send_group(im_msg)
+                except Exception as im_err:
+                    print(f"  Infinity Max builder error: {im_err}")
+
+                # 3a-iii. Auto-generate teams for users who missed deadline
                 rando_key = f"{lm['_id']}_randomized"
                 if state.get("last_dm", {}).get(rando_key):
                     continue
@@ -997,12 +1545,26 @@ def main():
                 print(f"    Parsed: {len(scorecard['innings'])} innings, {total_bat} batters, {total_bowl} bowlers")
                 print(f"    Teams: {scorecard['teams']}")
 
-                # 6. Update MongoDB + recalculate points
+                # 6. Detect milestones and send hype messages
+                db_match_for_ms = db.matches.find_one({"cricApiMatchId": str(cb_id)})
+                if db_match_for_ms:
+                    try:
+                        detect_milestones(db, db_match_for_ms, scorecard, state)
+                    except Exception as ms_err:
+                        print(f"    Milestone detection error: {ms_err}")
+
+                # 7. Update MongoDB + recalculate points
                 result = update_match_scores(db, cb_id, scorecard)
                 if not result:
                     continue
 
-                # 7. Send group updates
+                # 8. Detect leaderboard takeovers
+                try:
+                    detect_takeovers(db, result["match"], result["team_scores"], state)
+                except Exception as tk_err:
+                    print(f"    Takeover detection error: {tk_err}")
+
+                # 9. Send group updates (live leaderboard)
                 send_whatsapp_updates(db, result["match"], result["team_scores"], state)
 
             except Exception as e:

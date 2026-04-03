@@ -1,5 +1,6 @@
 const Prediction = require('../models/Prediction.model');
 const Match = require('../models/Match.model');
+const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
 const upsertPrediction = async (req, res) => {
   const { matchId, predictedWinner, predictionType = 'winner' } = req.body;
@@ -27,9 +28,12 @@ const getMatchPredictions = async (req, res) => {
     if (new Date(match.deadline) > new Date()) {
       return res.status(400).json({ message: 'Predictions hidden until deadline' });
     }
-    const predictions = await Prediction.find({ matchId: req.params.matchId })
+    const activeMemberIds = await getActiveLeagueMemberIds();
+    if (activeMemberIds.length === 0) return res.json([]);
+
+    const predictions = await Prediction.find({ matchId: req.params.matchId, userId: { $in: activeMemberIds } })
       .populate('userId', 'name');
-    res.json(predictions);
+    res.json(predictions.filter((prediction) => prediction.userId != null));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

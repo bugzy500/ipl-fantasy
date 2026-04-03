@@ -48,13 +48,25 @@ const TEAM_SIZE = 11;
               }
             </div>
 
+            <!-- Warning banner: not-in-XI players -->
+            @if (notInXICount() > 0 && !isDeadlinePassed()) {
+              <div class="flex items-center gap-2 p-3 rounded-lg mb-2"
+                   style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
+                <mat-icon style="color: rgb(239, 68, 68); font-size: 20px; width: 20px; height: 20px;">warning</mat-icon>
+                <span class="text-sm font-medium" style="color: rgb(239, 68, 68);">
+                  {{ notInXICount() }} player(s) not in Playing XI — edit your team!
+                </span>
+              </div>
+            }
+
             <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
               @for (player of selectedPlayerObjects(); track player._id) {
                 @let isCap = captain() === player._id;
                 @let isVC = viceCaptain() === player._id;
+                @let notPlaying = player.playingStatus === 'not_playing';
                 <div class="flex items-center gap-2 p-3 rounded-lg"
-                     [style.background]="isCap ? 'rgba(245, 158, 11, 0.12)' : isVC ? 'rgba(217, 119, 6, 0.08)' : 'var(--color-surface)'"
-                     style="border: 1px solid var(--color-border);">
+                     [style.background]="notPlaying ? 'rgba(239, 68, 68, 0.08)' : isCap ? 'rgba(245, 158, 11, 0.12)' : isVC ? 'rgba(217, 119, 6, 0.08)' : 'var(--color-surface)'"
+                     [style.border]="notPlaying ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid var(--color-border)'">
                   @if (isCap) {
                     <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
                           style="background: var(--color-warning); color: var(--color-base);">C</span>
@@ -64,8 +76,16 @@ const TEAM_SIZE = 11;
                           style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
                   }
                   <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium truncate" style="color: var(--color-text);">{{ player.name }}</div>
+                    <div class="text-sm font-medium truncate" style="color: var(--color-text);">
+                      {{ player.name }}
+                    </div>
                     <div class="text-xs" style="color: var(--color-text-muted);">{{ player.role }} · {{ player.credits }}cr</div>
+                    @if (notPlaying) {
+                      <span class="inline-flex items-center gap-0.5 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                            style="background: rgba(239, 68, 68, 0.15); color: rgb(239, 68, 68);">
+                        Not in Playing XI
+                      </span>
+                    }
                     @if (playerScores().size > 0) {
                       <div class="text-xs font-semibold"
                            [style.color]="(playerScores().get(player._id) ?? 0) > 0 ? 'var(--color-accent-hover)' : (playerScores().get(player._id) ?? 0) < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
@@ -177,7 +197,21 @@ const TEAM_SIZE = 11;
                           style="background: rgba(217, 119, 6, 0.7); color: white;">V</span>
                   }
                 </div>
-                <div class="text-xs" style="color: var(--color-text-muted);">{{ player.franchise }} · {{ player.role }}</div>
+                <div class="text-xs" style="color: var(--color-text-muted);">
+                  {{ player.franchise }} · {{ player.role }}
+                  @if (player.playingStatus === 'not_playing') {
+                    <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                          style="background: rgba(239, 68, 68, 0.15); color: rgb(239, 68, 68);">
+                      Not in XI
+                    </span>
+                  }
+                  @if (player.playingStatus === 'playing') {
+                    <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                          style="background: rgba(34, 197, 94, 0.15); color: rgb(34, 197, 94);">
+                      In XI
+                    </span>
+                  }
+                </div>
               </div>
 
               <!-- Credits -->
@@ -322,6 +356,10 @@ export class TeamBuilderComponent implements OnInit {
   });
 
   readonly canSubmit = computed(() => this.validationError() === '' && !this.isDeadlinePassed());
+
+  readonly notInXICount = computed(() =>
+    this.selectedPlayerObjects().filter(p => p.playingStatus === 'not_playing').length
+  );
 
   readonly captainName = computed(() =>
     this.players().find((p) => p._id === this.captain())?.name ?? ''

@@ -1,8 +1,8 @@
 const FantasyTeam = require('../models/FantasyTeam.model');
 const PlayerPerformance = require('../models/PlayerPerformance.model');
 const Match = require('../models/Match.model');
-const User = require('../models/User.model');
 const Prediction = require('../models/Prediction.model');
+const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
 // GET /api/stats/season-insights
 // Returns leaderboard variations: best captain, most consistent, biggest gainer, best predictor
@@ -10,12 +10,14 @@ const getSeasonInsights = async (req, res) => {
   try {
     const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 result');
     const matchIds = completedMatches.map(m => m._id);
+    const activeMemberIds = await getActiveLeagueMemberIds();
 
-    if (matchIds.length === 0) return res.json({ insights: [], money: [] });
+    if (matchIds.length === 0 || activeMemberIds.length === 0) return res.json({ insights: [], money: [] });
 
-    const allTeams = await FantasyTeam.find({ matchId: { $in: matchIds } })
+    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
       .populate('userId', 'name')
-      .populate('captain', 'name');
+      .populate('captain', 'name'))
+      .filter((team) => team.userId != null);
 
     const allPerfs = await PlayerPerformance.find({ matchId: { $in: matchIds } })
       .populate('playerId', 'name');
@@ -62,8 +64,9 @@ const getSeasonInsights = async (req, res) => {
     }
 
     // --- Best Predictor (most correct predictions) ---
-    const predictions = await Prediction.find({ matchId: { $in: matchIds }, isCorrect: true })
-      .populate('userId', 'name');
+    const predictions = (await Prediction.find({ matchId: { $in: matchIds }, isCorrect: true, userId: { $in: activeMemberIds } })
+      .populate('userId', 'name'))
+      .filter((prediction) => prediction.userId != null);
     const predCountByUser = {};
     for (const p of predictions) {
       const uid = String(p.userId._id);
@@ -155,20 +158,23 @@ const getSeasonAwards = async (req, res) => {
   try {
     const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 scheduledAt');
     const matchIds = completedMatches.map(m => m._id);
+    const activeMemberIds = await getActiveLeagueMemberIds();
 
-    if (matchIds.length === 0) return res.json({ awards: [] });
+    if (matchIds.length === 0 || activeMemberIds.length === 0) return res.json({ awards: [] });
 
-    const allTeams = await FantasyTeam.find({ matchId: { $in: matchIds } })
+    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
       .populate('userId', 'name')
       .populate('captain', 'name role')
       .populate('viceCaptain', 'name role')
-      .populate('players', 'name role');
+      .populate('players', 'name role'))
+      .filter((team) => team.userId != null);
 
     const allPerfs = await PlayerPerformance.find({ matchId: { $in: matchIds } })
       .populate('playerId', 'name role');
 
-    const predictions = await Prediction.find({ matchId: { $in: matchIds } })
-      .populate('userId', 'name');
+    const predictions = (await Prediction.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
+      .populate('userId', 'name'))
+      .filter((prediction) => prediction.userId != null);
 
     // Build lookup: matchId+playerId → fantasyPoints
     const perfMap = {};

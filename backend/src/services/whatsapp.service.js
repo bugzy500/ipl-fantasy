@@ -58,7 +58,7 @@ async function sendDeadlineReminders(match, missingUsers) {
  */
 async function sendScoreUpdates(match, allUsers, topUsers) {
   const leaderboard = topUsers
-    .slice(0, 5)
+    .slice(0, 15)
     .map((u, i) => `${i + 1}. ${u.userName} — ${u.totalPoints} pts`)
     .join('\n');
 
@@ -72,7 +72,7 @@ async function sendScoreUpdates(match, allUsers, topUsers) {
 
     const msg =
       `📊 *Live — ${match.team1} vs ${match.team2}*\n\n` +
-      `${leaderboard}${myLine}\n\n` +
+      `*Top 15 right now:*\n${leaderboard}${myLine}\n\n` +
       `Points updating live!`;
     await sendDM(user.phone, msg);
   }

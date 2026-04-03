@@ -18,6 +18,10 @@ const predictionsRoutes = require('./routes/predictions.routes');
 const statsRoutes = require('./routes/stats.routes');
 
 const app = express();
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:4200')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 // Security & logging middleware
 app.use(helmet());
@@ -25,7 +29,12 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // CORS — allow the Angular frontend
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:4200',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
 }));
 
