@@ -70,19 +70,16 @@ def calculate_fantasy_points(perf, role):
     pts += perf.get("sixes", 0) * 2.0
     if runs >= 100: pts += 16.0
     elif runs >= 50: pts += 8.0
-    elif runs >= 30: pts += 4.0
-    if perf.get("didBat") and runs == 0 and perf.get("isDismissed"):
+    if perf.get("didBat") and runs == 0 and perf.get("isDismissed") and role != "BOWL":
         pts -= 2.0
     if bf >= 10:
         sr = (runs / bf) * 100
-        if sr >= 200: pts += 8.0      # monster innings
-        elif sr >= 150: pts += 6.0    # explosive
-        elif sr >= 130: pts += 4.0    # very fast
-        elif sr >= 110: pts += 2.0    # above par
-        # 90-110 = par, no modifier
-        elif sr >= 70: pts -= 4.0     # slow innings
-        elif sr >= 50: pts -= 6.0     # very slow
-        else: pts -= 8.0              # anchored to death
+        if sr > 170: pts += 6.0
+        elif sr > 150: pts += 4.0
+        elif sr >= 130: pts += 2.0
+        elif 60 <= sr <= 70: pts -= 2.0
+        elif 50 <= sr < 60: pts -= 4.0
+        elif sr < 50: pts -= 6.0
 
     # Bowling
     pts += wk * 25.0
@@ -90,17 +87,14 @@ def calculate_fantasy_points(perf, role):
     pts += perf.get("maidens", 0) * 12.0
     if wk >= 5: pts += 16.0
     elif wk >= 4: pts += 8.0
-    elif wk >= 3: pts += 4.0
     if overs >= 2:
         eco = perf.get("runsConceded", 0) / overs
-        if eco < 4: pts += 10.0       # elite spell
-        elif eco < 5: pts += 8.0      # excellent
-        elif eco < 6: pts += 6.0      # very good
-        elif eco < 8: pts += 4.0      # good control
-        # 8-10 = par, no modifier
-        elif eco <= 11: pts -= 2.0    # expensive
-        elif eco <= 12: pts -= 4.0    # very expensive
-        else: pts -= 6.0              # getting smashed
+        if eco < 5: pts += 6.0
+        elif eco < 6: pts += 4.0
+        elif eco <= 7: pts += 2.0
+        elif 10 <= eco <= 11: pts -= 2.0
+        elif 11 < eco <= 12: pts -= 4.0
+        elif eco > 12: pts -= 6.0
 
     # Fielding
     pts += perf.get("catches", 0) * 8.0
@@ -108,10 +102,6 @@ def calculate_fantasy_points(perf, role):
     pts += perf.get("stumpings", 0) * 12.0
     pts += perf.get("runOutDirect", 0) * 12.0
     pts += perf.get("runOutIndirect", 0) * 6.0
-
-    # Playing bonus
-    if perf.get("didBat") or overs > 0:
-        pts += 4.0
     return round(pts, 1)
 
 

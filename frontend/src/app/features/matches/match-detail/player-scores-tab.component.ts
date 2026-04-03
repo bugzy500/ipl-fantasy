@@ -1,9 +1,9 @@
-import { Component, inject, input, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, input, signal } from '@angular/core';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
-import { interval, Subscription, startWith, switchMap } from 'rxjs';
+import { Subscription, interval, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
-import { PlayerPerformance, MatchStatus } from '../../../core/models/api.models';
+import { MatchStatus, PlayerPerformance, ScoreBreakdownSection } from '../../../core/models/api.models';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -13,19 +13,23 @@ const POLL_INTERVAL_MS = 30_000;
   imports: [MatProgressSpinnerModule, MatIconModule],
   template: `
     <div class="p-4 space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="text-display font-semibold" style="color: var(--color-text);">
-          Player Scores
-        </h3>
-        @if (isLive()) {
-          <span class="inline-flex items-center gap-1.5 status-live">
-            <span class="live-dot"></span>
-            updates every 30s
-          </span>
-        }
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-3">
+          <h3 class="text-display font-semibold" style="color: var(--color-text);">
+            Player Scorecards
+          </h3>
+          @if (isLive()) {
+            <span class="inline-flex items-center gap-1.5 status-live">
+              <span class="live-dot"></span>
+              updates every 30s
+            </span>
+          }
+        </div>
+        <p class="text-xs" style="color: var(--color-text-muted); line-height: 1.7;">
+          Tap a player to see the exact batting, bowling, and fielding line-items behind the final fantasy total.
+        </p>
       </div>
 
-      <!-- Role filter -->
       <div class="flex gap-2 flex-wrap">
         @for (role of roles; track role.key) {
           <button class="filter-chip"
@@ -52,17 +56,15 @@ const POLL_INTERVAL_MS = 30_000;
         </div>
       }
 
-      <!-- Player cards -->
       @for (perf of filtered(); track perf._id; let i = $index) {
         <div class="player-score-card stagger-item fade-up"
              (click)="toggleExpand(perf._id)">
-          <!-- Summary row -->
           <div class="flex items-center gap-3">
             <span class="rank-num text-display font-bold"
                   style="color: var(--color-text-subtle); width: 24px; text-align: center;">
               {{ i + 1 }}
             </span>
-            <div class="flex-1 min-w-0">
+            <div class="flex-1 min-w-0 space-y-1">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-sm truncate" style="color: var(--color-text);">
                   {{ perf.playerId.name }}
@@ -71,13 +73,14 @@ const POLL_INTERVAL_MS = 30_000;
                   {{ perf.playerId.role }}
                 </span>
               </div>
-              <span class="text-xs" style="color: var(--color-text-muted);">
-                {{ perf.playerId.franchise }}
-              </span>
+              <div class="flex flex-wrap gap-1.5">
+                @for (summary of summaryPills(perf); track summary) {
+                  <span class="summary-pill">{{ summary }}</span>
+                }
+              </div>
             </div>
-            <span class="text-display font-bold text-lg"
-                  [style.color]="perf.fantasyPoints > 0 ? 'var(--color-accent-hover)' : perf.fantasyPoints < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
-              {{ perf.fantasyPoints }}
+            <span class="text-display font-bold text-lg" [style.color]="pointColor(perf.fantasyPoints)">
+              {{ formatPoints(perf.fantasyPoints) }}
             </span>
             <mat-icon class="expand-icon"
                       [class.expand-icon--open]="expanded() === perf._id"
@@ -86,56 +89,38 @@ const POLL_INTERVAL_MS = 30_000;
             </mat-icon>
           </div>
 
-          <!-- Expanded breakdown -->
           @if (expanded() === perf._id) {
             <div class="breakdown-grid mt-4 pt-4" style="border-top: 1px solid var(--color-border);">
-              <!-- Batting -->
-              @if (perf.didBat) {
+              @for (section of breakdownSections(perf); track section.key) {
                 <div class="breakdown-section">
-                  <span class="text-label">Batting</span>
-                  <div class="stat-row">
-                    <span>{{ perf.runs }} runs ({{ perf.ballsFaced }}b)</span>
-                    <span>{{ perf.fours }}x4 {{ perf.sixes }}x6</span>
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-label">{{ section.label }}</span>
+                    <span class="section-total" [style.color]="pointColor(section.subtotal)">
+                      {{ formatPoints(section.subtotal) }}
+                    </span>
                   </div>
-                  @if (perf.ballsFaced >= 10) {
-                    <div class="stat-row">
-                      <span>SR {{ strikeRate(perf) }}</span>
-                    </div>
-                  }
-                </div>
-              }
-
-              <!-- Bowling -->
-              @if (perf.oversBowled > 0) {
-                <div class="breakdown-section">
-                  <span class="text-label">Bowling</span>
-                  <div class="stat-row">
-                    <span>{{ perf.wickets }}/{{ perf.runsConceded }} ({{ perf.oversBowled }} ov)</span>
-                    <span>Econ {{ economy(perf) }}</span>
-                  </div>
-                  @if (perf.maidens > 0) {
-                    <div class="stat-row">
-                      <span>{{ perf.maidens }} maiden{{ perf.maidens > 1 ? 's' : '' }}</span>
-                    </div>
-                  }
-                </div>
-              }
-
-              <!-- Fielding -->
-              @if (hasFieldingStats(perf)) {
-                <div class="breakdown-section">
-                  <span class="text-label">Fielding</span>
-                  <div class="stat-row">
-                    @if (perf.catches > 0) { <span>{{ perf.catches }} catch{{ perf.catches > 1 ? 'es' : '' }}</span> }
-                    @if (perf.stumpings > 0) { <span>{{ perf.stumpings }} stumping{{ perf.stumpings > 1 ? 's' : '' }}</span> }
-                    @if (perf.runOutDirect > 0) { <span>{{ perf.runOutDirect }} direct RO</span> }
-                    @if (perf.runOutIndirect > 0) { <span>{{ perf.runOutIndirect }} indirect RO</span> }
+                  <div class="space-y-2">
+                    @for (item of section.items; track item.label + item.detail) {
+                      <div class="breakdown-item">
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium truncate" style="color: var(--color-text);">
+                            {{ item.label }}
+                          </div>
+                          <div class="text-xs" style="color: var(--color-text-muted);">
+                            {{ item.detail }}
+                          </div>
+                        </div>
+                        <span class="points-chip" [style]="pointsChipStyle(item.points)">
+                          {{ formatPoints(item.points) }}
+                        </span>
+                      </div>
+                    }
                   </div>
                 </div>
               }
 
-              @if (!perf.didBat && perf.oversBowled === 0 && !hasFieldingStats(perf)) {
-                <p class="text-xs" style="color: var(--color-text-muted);">Did not bat or bowl.</p>
+              @if (breakdownSections(perf).length === 0) {
+                <p class="text-xs" style="color: var(--color-text-muted);">No scoring events recorded yet.</p>
               }
             </div>
           }
@@ -205,6 +190,18 @@ const POLL_INTERVAL_MS = 30_000;
     .role-badge--ar  { background: rgba(34, 197, 94, 0.15); color: #22C55E; }
     .role-badge--bowl { background: rgba(232, 83, 74, 0.15); color: #E8534A; }
 
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--color-text-subtle);
+      background: var(--color-surface-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+
     .breakdown-grid {
       display: flex;
       flex-direction: column;
@@ -213,13 +210,45 @@ const POLL_INTERVAL_MS = 30_000;
     .breakdown-section {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-elevated);
     }
-    .stat-row {
+    .text-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-text-subtle);
+    }
+    .section-total {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .breakdown-item {
       display: flex;
+      justify-content: space-between;
       gap: 16px;
-      font-size: 13px;
-      color: var(--color-text-muted);
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .points-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 64px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: var(--font-display);
+      white-space: nowrap;
     }
   `],
 })
@@ -253,24 +282,6 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
 
   private subscription?: Subscription;
 
-  strikeRate(p: PlayerPerformance): string {
-    if (!p.ballsFaced) return '0.00';
-    return ((p.runs / p.ballsFaced) * 100).toFixed(1);
-  }
-
-  economy(p: PlayerPerformance): string {
-    if (!p.oversBowled) return '0.00';
-    return (p.runsConceded / p.oversBowled).toFixed(1);
-  }
-
-  hasFieldingStats(p: PlayerPerformance): boolean {
-    return (p.catches > 0 || p.stumpings > 0 || p.runOutDirect > 0 || p.runOutIndirect > 0);
-  }
-
-  toggleExpand(id: string) {
-    this.expanded.set(this.expanded() === id ? null : id);
-  }
-
   ngOnInit() {
     const source$ = this.isLive()
       ? interval(POLL_INTERVAL_MS).pipe(startWith(0), switchMap(() => this.api.getScores(this.matchId())))
@@ -290,5 +301,60 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.subscription?.unsubscribe();
+  }
+
+  toggleExpand(id: string) {
+    this.expanded.set(this.expanded() === id ? null : id);
+  }
+
+  strikeRate(p: PlayerPerformance): string {
+    if (!p.ballsFaced) return '0.00';
+    return ((p.runs / p.ballsFaced) * 100).toFixed(2);
+  }
+
+  economy(p: PlayerPerformance): string {
+    if (!p.oversBowled) return '0.00';
+    return (p.runsConceded / p.oversBowled).toFixed(2);
+  }
+
+  summaryPills(perf: PlayerPerformance): string[] {
+    const pills: string[] = [];
+    if (perf.didBat) {
+      pills.push(`${perf.runs} (${perf.ballsFaced}b)`);
+      if (perf.ballsFaced >= 10) pills.push(`SR ${this.strikeRate(perf)}`);
+    }
+    if (perf.oversBowled > 0) {
+      pills.push(`${perf.wickets}/${perf.runsConceded} in ${perf.oversBowled} ov`);
+      if (perf.oversBowled >= 2) pills.push(`Econ ${this.economy(perf)}`);
+    }
+    if (perf.catches > 0) pills.push(`${perf.catches} catch${perf.catches === 1 ? '' : 'es'}`);
+    if (perf.stumpings > 0) pills.push(`${perf.stumpings} stumping${perf.stumpings === 1 ? '' : 's'}`);
+    if (perf.runOutDirect > 0) pills.push(`${perf.runOutDirect} direct RO`);
+    if (perf.runOutIndirect > 0) pills.push(`${perf.runOutIndirect} assist RO`);
+    return pills.length > 0 ? pills : ['No scoring events yet'];
+  }
+
+  breakdownSections(perf: PlayerPerformance): ScoreBreakdownSection[] {
+    return perf.scoreBreakdown?.sections ?? [];
+  }
+
+  formatPoints(points: number): string {
+    return points > 0 ? `+${points}` : `${points}`;
+  }
+
+  pointColor(points: number): string {
+    if (points > 0) return 'var(--color-accent-hover)';
+    if (points < 0) return 'var(--color-danger)';
+    return 'var(--color-text-muted)';
+  }
+
+  pointsChipStyle(points: number): string {
+    if (points > 0) {
+      return 'background: rgba(34, 197, 94, 0.14); color: var(--color-success); border: 1px solid rgba(34, 197, 94, 0.25);';
+    }
+    if (points < 0) {
+      return 'background: rgba(232, 83, 74, 0.14); color: var(--color-danger); border: 1px solid rgba(232, 83, 74, 0.25);';
+    }
+    return 'background: rgba(148, 163, 184, 0.12); color: var(--color-text-subtle); border: 1px solid rgba(148, 163, 184, 0.2);';
   }
 }

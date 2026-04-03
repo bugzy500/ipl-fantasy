@@ -11,6 +11,7 @@ import {
   Award,
   Prediction,
   SeasonInsightsResponse,
+  ScoringRulesResponse,
 } from '../models/api.models';
 
 /**
@@ -80,6 +81,10 @@ export class ApiService {
   // ── Scores ─────────────────────────────────────────────────────────────────
   getScores(matchId: string) {
     return this.http.get<PlayerPerformance[]>(`${this.base}/scores/${matchId}`);
+  }
+
+  getScoringRules() {
+    return this.http.get<ScoringRulesResponse>(`${this.base}/scores/rules`);
   }
 
   submitScores(matchId: string, performances: Partial<PlayerPerformance>[]) {

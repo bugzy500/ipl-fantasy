@@ -1,5 +1,6 @@
 const PlayerPerformance = require('../models/PlayerPerformance.model');
 const { processPerformances } = require('../services/score-processor.service');
+const { buildFantasyPointsBreakdown, getScoringRules } = require('../services/scoring.service');
 
 /**
  * POST /api/scores/:matchId
@@ -28,11 +29,22 @@ const submitScores = async (req, res) => {
 const getScores = async (req, res) => {
   try {
     const performances = await PlayerPerformance.find({ matchId: req.params.matchId })
-      .populate('playerId', 'name franchise role imageUrl');
-    res.json(performances);
+      .populate('playerId', 'name franchise role imageUrl')
+      .lean();
+
+    const withBreakdowns = performances.map((performance) => ({
+      ...performance,
+      scoreBreakdown: buildFantasyPointsBreakdown(performance, performance.playerId?.role ?? 'BAT'),
+    }));
+
+    res.json(withBreakdowns);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-module.exports = { submitScores, getScores };
+const getRules = (_req, res) => {
+  res.json(getScoringRules());
+};
+
+module.exports = { submitScores, getScores, getRules };

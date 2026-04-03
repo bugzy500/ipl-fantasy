@@ -12,7 +12,14 @@ import { FantasyTeam, Player, MatchStatus, PlayerPerformance } from '../../../co
   imports: [MatProgressSpinnerModule, MatIconModule, MatExpansionModule],
   template: `
     <div class="p-4 space-y-4">
-      <h3 class="text-display font-semibold" style="color: var(--color-text);">All Teams</h3>
+      <div class="space-y-2">
+        <h3 class="text-display font-semibold" style="color: var(--color-text);">All Teams</h3>
+        @if (matchStatus() === 'completed' || matchStatus() === 'live') {
+          <p class="text-xs" style="color: var(--color-text-muted); line-height: 1.7;">
+            Need the math behind a player total? Open the Scorecards tab for the exact batting, bowling, and fielding breakdown.
+          </p>
+        }
+      </div>
 
       @if (!deadlinePassed()) {
         <div class="text-center py-12 card-surface">
