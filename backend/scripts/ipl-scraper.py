@@ -832,7 +832,7 @@ def update_playing_11_best_effort_basis(match: dict, db) -> bool:
     try:
         from fetch_playing_11 import FetchActualPlaying11
         fetcher = FetchActualPlaying11()
-        xi_names = fetcher.fetch(team1_abbr, team2_abbr, match_id)
+        xi_names = fetcher.fetch(team1_abbr, team2_abbr)
         # xi_names = {"team1": ["Player A", ...], "team2": ["Player B", ...]}
     except Exception as e:
         print(f"    PlayingXI fetch error for {team1_abbr} vs {team2_abbr}: {e}")
