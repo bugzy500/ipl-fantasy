@@ -36,8 +36,8 @@ async function validateTeam(playerIds, captainId, viceCaptainId, match) {
   if (roleCounts.WK < 1 || roleCounts.WK > 4) return 'Team must have 1–4 Wicket-Keepers';
   const batTotal = roleCounts.WK + roleCounts.BAT; // WK counts as a batsman
   if (batTotal < 3 || batTotal > 6) return 'Team must have 3–6 Batters (WK included)';
-  if (roleCounts.AR < 1 || roleCounts.AR > 4) return 'Team must have 1–4 All-Rounders';
-  if (roleCounts.BOWL < 3 || roleCounts.BOWL > 6) return 'Team must have 3–6 Bowlers';
+  if (roleCounts.AR < 2 || roleCounts.AR > 4) return 'Team must have 2–4 All-Rounders';
+  if (roleCounts.BOWL < 2 || roleCounts.BOWL > 6) return 'Team must have 2–6 Bowlers';
 
   for (const [franchise, count] of Object.entries(franchiseCounts)) {
     if (count > MAX_FROM_ONE_FRANCHISE) {

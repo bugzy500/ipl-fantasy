@@ -301,9 +301,9 @@ export class RulesComponent {
       color: '#22C55E',
       rules: [
         { label: 'Per catch', points: '+8' },
-        { label: '3+ catches in a match', points: '+4 bonus' },
+        { label: '3+ catches in a match', points: '+8 bonus' },
         { label: 'Per stumping', points: '+12' },
-        { label: 'Direct run-out', points: '+12' },
+        { label: 'Direct run-out', points: '+10' },
         { label: 'Indirect run-out (throw/assist)', points: '+6' },
       ],
     },
