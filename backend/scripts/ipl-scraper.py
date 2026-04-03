@@ -633,7 +633,7 @@ def send_submission_reminders(db, state):
                        f"*{mins_display} min* to deadline!\n\n"
                        f"\u2705 *Submitted:* {submitted_text}\n"
                        f"\u274c *Pending:* {pending_text}\n\n"
-                       f"Lock your team now! \U0001f449 https://ipl.bugzy500.com")
+                       f"Lock your team now! \U0001f449 https://ipl-fantasy-zeta.vercel.app")
 
                 send_group(msg)
                 state.setdefault("last_dm", {})[tier_key] = True
@@ -645,14 +645,15 @@ def send_submission_reminders(db, state):
 def generate_random_team(players_pool):
     """
     Pick 11 valid players from a pool (playing 22).
-    Constraints: ≤100 credits, 1-4 WK, 3-6 BAT (incl WK), 1-4 AR, 3-6 BOWL, max 7 per franchise.
+    Constraints: ≤100 credits, min 1 WK, min 2 BAT, min 2 AR, min 2 BOWL, max 7 per franchise.
+    No upper bound per role — fill remaining spots freely after minimums are met.
     Returns (players_11, captain, vice_captain) or None if impossible.
     """
     BUDGET = 100
     MAX_FRANCHISE = 7
 
-    # Role bounds: (min, max)
-    ROLE_BOUNDS = {"WK": (1, 4), "BAT": (1, 5), "AR": (1, 4), "BOWL": (2, 6)}
+    # Role lower bounds only — no upper cap, fill freely after minimums
+    ROLE_MIN = {"WK": 1, "BAT": 2, "AR": 2, "BOWL": 2}
 
     by_role = {}
     for p in players_pool:
@@ -672,12 +673,12 @@ def generate_random_team(players_pool):
             random.shuffle(ps)
 
         picked_ids = set()
-        for role, (mn, _) in ROLE_BOUNDS.items():
+        for role, mn in ROLE_MIN.items():
             available = pool_copy.get(role, [])
             for p in available:
                 if len(team) >= 11:
                     break
-                if role_counts[role] >= mn:
+                if role_counts.get(role, 0) >= mn:
                     break
                 pid = str(p["_id"])
                 if pid in picked_ids:
@@ -700,9 +701,6 @@ def generate_random_team(players_pool):
             if len(team) >= 11:
                 break
             role = p.get("role", "BAT")
-            _, mx = ROLE_BOUNDS.get(role, (0, 6))
-            if role_counts.get(role, 0) >= mx:
-                continue
             fr = p.get("franchise", "")
             if franchise_counts.get(fr, 0) >= MAX_FRANCHISE:
                 continue
@@ -717,9 +715,8 @@ def generate_random_team(players_pool):
         if len(team) != 11:
             continue
 
-        # Validate WK+BAT count (WK counts as batsman)
-        bat_total = role_counts.get("WK", 0) + role_counts.get("BAT", 0)
-        if bat_total < 3 or bat_total > 6:
+        # Validate minimums are all met
+        if any(role_counts.get(role, 0) < mn for role, mn in ROLE_MIN.items()):
             continue
 
         # Pick captain and vice-captain
@@ -805,6 +802,103 @@ def auto_generate_missing_teams(db, match):
 
     return auto_picked
 
+def update_playing_11_best_effort_basis(match: dict, db) -> bool:
+    """
+    Best-effort: fetch Playing XI from Cricbuzz and write player ObjectIds into
+    the match document's ``playingXI.team1`` / ``playingXI.team2`` fields.
+
+    Steps:
+      1. Skip if playingXI already fully populated (both teams have ≥ 11 entries).
+      2. Call FetchActualPlaying11.fetch(team1, team2) to get player name lists.
+      3. Resolve each name to a Player ObjectId via the ``players`` collection.
+      4. Update the *existing* match document in-place (never inserts).
+
+    Returns True if the match was updated, False otherwise.
+    """
+    match_id  = match["_id"]
+    team1_abbr = match.get("team1", "")
+    team2_abbr = match.get("team2", "")
+
+    existing_xi = match.get("playingXI", {})
+    team1_ids   = existing_xi.get("team1", [])
+    team2_ids   = existing_xi.get("team2", [])
+
+    # 1. Skip if already fully populated
+    if len(team1_ids) >= 11 and len(team2_ids) >= 11:
+        print(f"    PlayingXI already set for {team1_abbr} vs {team2_abbr}. Skipping.")
+        return False
+
+    # 2. Fetch player names from Cricbuzz
+    try:
+        from fetch_playing_11 import FetchActualPlaying11
+        fetcher = FetchActualPlaying11()
+        xi_names = fetcher.fetch(team1_abbr, team2_abbr, match_id)
+        # xi_names = {"team1": ["Player A", ...], "team2": ["Player B", ...]}
+    except Exception as e:
+        print(f"    PlayingXI fetch error for {team1_abbr} vs {team2_abbr}: {e}")
+        return False
+
+    t1_names = xi_names.get("team1", []) or xi_names.get(team1_abbr, [])
+    t2_names = xi_names.get("team2", []) or xi_names.get(team2_abbr, [])
+
+    if not t1_names or not t2_names:
+        print(f"PlayingXI not yet announced for both teams ({team1_abbr} vs {team2_abbr}). Skipping update.")
+        return False
+
+    # 3. Resolve player names → ObjectIds via players collection.
+    #    Normalise both sides: lowercase + strip all spaces before comparing.
+    #    ObjectIds stored in DB remain untouched.
+    def _norm(s: str) -> str:
+        return s.lower().replace(" ", "")
+
+    # Build lookup once for both teams (fetch only the two franchises involved)
+    all_players = list(db.players.find(
+        {"franchise": {"$in": [team1_abbr, team2_abbr]}},
+        {"_id": 1, "name": 1}
+    ))
+    player_lookup: dict[str, object] = {_norm(p["name"]): p["_id"] for p in all_players}
+
+    def resolve_player_ids(names: list[str]) -> list:
+        if not names:
+            return []
+        ids = []
+        for name in names:
+            key = _norm(name)
+            player_id = player_lookup.get(key)
+            if player_id is not None:
+                ids.append(player_id)
+            else:
+                print(f"Warning: could not resolve player '{name}' to DB entry")
+        return ids
+
+    t1_ids = resolve_player_ids(t1_names)
+    t2_ids = resolve_player_ids(t2_names)
+
+    # Only update DB when we have resolved IDs for BOTH teams
+    if not t1_ids or not t2_ids:
+        print(
+            f"PlayingXI: could not resolve players for both teams "
+            f"({team1_abbr}: {len(t1_ids)}, {team2_abbr}: {len(t2_ids)}). Skipping update."
+        )
+        return False
+
+    # 4. Update the existing match document in-place (never upsert)
+    result = db.matches.update_one(
+        {"_id": match_id},
+        {"$set": {"playingXI.team1": t1_ids, "playingXI.team2": t2_ids}},
+    )
+
+    if result.matched_count == 0:
+        print(f"PlayingXI update: match {match_id} not found in DB.")
+        return False
+
+    print(
+        f"PlayingXI updated for {team1_abbr} vs {team2_abbr}: "
+        f"{len(t1_ids)} {team1_abbr} players, {len(t2_ids)} {team2_abbr} players."
+    )
+    return True
+
+
 
 # ─── Main ───
 def main():
@@ -836,6 +930,23 @@ def main():
         else:
             print(f"  Found {len(matches)} match(es)")
 
+        # 3b. Best-effort: fetch & store Playing XI for upcoming/toss_done matches
+        try:
+            pending_xi_matches = list(db.matches.find({
+                "status": {"$in": ["upcoming", "toss_done"]},
+                "$or": [
+                    {"playingXI.team1": {"$exists": False}},
+                    {"playingXI.team1": []},
+                    {"playingXI.team2": {"$exists": False}},
+                    {"playingXI.team2": []},
+                ],
+            }))
+            for pm in pending_xi_matches:
+                update_playing_11_best_effort_basis(pm, db)
+                
+        except Exception as e:
+            print(f"PlayingXI update error: {e}")
+
         # 3a. Auto-generate teams for matches that just went live with playingXI
         try:
             live_matches = list(db.matches.find({
@@ -853,6 +964,7 @@ def main():
                     state.setdefault("last_dm", {})[rando_key] = True
         except Exception as e:
             print(f"  Randomizer error: {e}")
+
 
         for m in matches:
             cb_id = m["cb_id"]

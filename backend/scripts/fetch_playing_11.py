@@ -73,7 +73,7 @@ class FetchActualPlaying11:
 
     # ─── Public API ──────────────────────────────────────────────────────────
 
-    def fetch(self, team1: str, team2: str) -> dict[str, list[str]]:
+    def fetch(self, team1: str, team2: str, match_id: str = "") -> dict[str, list[str]]:
         """
         Fetch the Playing XI for both teams in an IPL match.
 
@@ -94,7 +94,8 @@ class FetchActualPlaying11:
         logger.info("Fetching Playing XI for %s vs %s", t1, t2)
 
         # Step 1 — resolve Cricbuzz match ID
-        match_id = self._get_match_id(t1, t2)
+        if match_id == "":
+            match_id = self._get_match_id(t1, t2)
         if match_id == -1:
             logger.warning("No IPL match found for %s vs %s on Cricbuzz Home API", t1, t2)
             return empty_result
