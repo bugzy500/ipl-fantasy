@@ -8,7 +8,8 @@
     "dev": "nodemon src/app.js",
     "seed": "node src/seed.js",
     "seed:matches": "node src/seed-matches.js",
-    "test": "node --test"
+    "test": "node --test",
+    "recompute:scores": "node scripts/recompute_fantasy_scores.js"
   },
   "keywords": [],
   "author": "",

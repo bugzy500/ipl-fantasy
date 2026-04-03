@@ -846,8 +846,8 @@ def detect_takeovers(db, match, team_scores, state):
             prev_pts = prev_info["points"]
             points_gained = cur_pts - prev_pts
 
-            # Someone moved up at least 1 position AND gained points
-            if cur_rank < prev_rank and points_gained > 0:
+            # Only podium moves count as takeovers. Anything outside the top 3 is noise.
+            if cur_rank < prev_rank and cur_rank <= 3 and points_gained > 0:
                 # Find who they overtook
                 overtaken = []
                 for other_name, other_cur in current.items():
@@ -913,19 +913,11 @@ def detect_takeovers(db, match, team_scores, state):
         # Tiered media based on rank reached:
         #   1st-2nd: solid celebration GIF
         #   3rd: normal random GIF
-        #   4th-5th: cartoon avatar
-        #   6th+: just text, no media
         rank = to["cur_rank"]
         if rank <= 2:
             send_group_gif(random.choice(GIFS["celebration"]), msg)
         elif rank == 3:
             send_group_gif(random.choice(ALL_GIFS), msg)
-        elif rank <= 5:
-            uid = to.get("userId", "")
-            if uid:
-                send_group_gif(f"{AVATAR_BASE_URL}/{uid}.png", msg)
-            else:
-                send_group(msg)
         else:
             send_group(msg)
         sent_takeovers.add(dedup)

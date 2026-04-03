@@ -4,6 +4,14 @@ import { MatIconModule } from '@angular/material/icon';
 import { Subscription, interval, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
 import { MatchStatus, PlayerPerformance, ScoreBreakdownSection } from '../../../core/models/api.models';
+import {
+  breakdownSections as getBreakdownSections,
+  displayPoints as getDisplayPoints,
+  economy as getEconomy,
+  storedPointsMismatch as hasStoredPointsMismatch,
+  strikeRate as getStrikeRate,
+  summaryPills as getSummaryPills,
+} from './scorecard.utils';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -79,8 +87,8 @@ const POLL_INTERVAL_MS = 30_000;
                 }
               </div>
             </div>
-            <span class="text-display font-bold text-lg" [style.color]="pointColor(perf.fantasyPoints)">
-              {{ formatPoints(perf.fantasyPoints) }}
+            <span class="text-display font-bold text-lg" [style.color]="pointColor(displayPoints(perf))">
+              {{ formatPoints(displayPoints(perf)) }}
             </span>
             <mat-icon class="expand-icon"
                       [class.expand-icon--open]="expanded() === perf._id"
@@ -116,6 +124,13 @@ const POLL_INTERVAL_MS = 30_000;
                       </div>
                     }
                   </div>
+                </div>
+              }
+
+              @if (storedPointsMismatch(perf)) {
+                <div class="text-xs px-3 py-2 rounded-lg"
+                     style="color: var(--color-warning); background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
+                  Scorecards are using the recomputed rules total of {{ displayPoints(perf) }} pts. Stored live points were {{ perf.storedFantasyPoints }} pts.
                 </div>
               }
 
@@ -277,7 +292,7 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
     const role = this.activeRole();
     const perfs = this.performances();
     const list = role === 'ALL' ? perfs : perfs.filter((p) => p.playerId?.role === role);
-    return [...list].sort((a, b) => b.fantasyPoints - a.fantasyPoints);
+    return [...list].sort((a, b) => this.displayPoints(b) - this.displayPoints(a));
   });
 
   private subscription?: Subscription;
@@ -308,34 +323,27 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
   }
 
   strikeRate(p: PlayerPerformance): string {
-    if (!p.ballsFaced) return '0.00';
-    return ((p.runs / p.ballsFaced) * 100).toFixed(2);
+    return getStrikeRate(p);
   }
 
   economy(p: PlayerPerformance): string {
-    if (!p.oversBowled) return '0.00';
-    return (p.runsConceded / p.oversBowled).toFixed(2);
+    return getEconomy(p);
   }
 
   summaryPills(perf: PlayerPerformance): string[] {
-    const pills: string[] = [];
-    if (perf.didBat) {
-      pills.push(`${perf.runs} (${perf.ballsFaced}b)`);
-      if (perf.ballsFaced >= 10) pills.push(`SR ${this.strikeRate(perf)}`);
-    }
-    if (perf.oversBowled > 0) {
-      pills.push(`${perf.wickets}/${perf.runsConceded} in ${perf.oversBowled} ov`);
-      if (perf.oversBowled >= 2) pills.push(`Econ ${this.economy(perf)}`);
-    }
-    if (perf.catches > 0) pills.push(`${perf.catches} catch${perf.catches === 1 ? '' : 'es'}`);
-    if (perf.stumpings > 0) pills.push(`${perf.stumpings} stumping${perf.stumpings === 1 ? '' : 's'}`);
-    if (perf.runOutDirect > 0) pills.push(`${perf.runOutDirect} direct RO`);
-    if (perf.runOutIndirect > 0) pills.push(`${perf.runOutIndirect} assist RO`);
-    return pills.length > 0 ? pills : ['No scoring events yet'];
+    return getSummaryPills(perf);
   }
 
   breakdownSections(perf: PlayerPerformance): ScoreBreakdownSection[] {
-    return perf.scoreBreakdown?.sections ?? [];
+    return getBreakdownSections(perf);
+  }
+
+  displayPoints(perf: PlayerPerformance): number {
+    return getDisplayPoints(perf);
+  }
+
+  storedPointsMismatch(perf: PlayerPerformance): boolean {
+    return hasStoredPointsMismatch(perf);
   }
 
   formatPoints(points: number): string {

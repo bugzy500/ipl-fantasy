@@ -32,10 +32,15 @@ const getScores = async (req, res) => {
       .populate('playerId', 'name franchise role imageUrl')
       .lean();
 
-    const withBreakdowns = performances.map((performance) => ({
-      ...performance,
-      scoreBreakdown: buildFantasyPointsBreakdown(performance, performance.playerId?.role ?? 'BAT'),
-    }));
+    const withBreakdowns = performances.map((performance) => {
+      const scoreBreakdown = buildFantasyPointsBreakdown(performance, performance.playerId?.role ?? 'BAT');
+      return {
+        ...performance,
+        fantasyPoints: scoreBreakdown.total,
+        storedFantasyPoints: performance.fantasyPoints,
+        scoreBreakdown,
+      };
+    });
 
     res.json(withBreakdowns);
   } catch (err) {

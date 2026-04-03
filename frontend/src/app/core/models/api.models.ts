@@ -80,6 +80,7 @@ export interface PlayerPerformance {
   runOutDirect: number;
   runOutIndirect: number;
   fantasyPoints: number;
+  storedFantasyPoints?: number;
   scoreBreakdown: ScoreBreakdown;
 }
 
