@@ -82,25 +82,51 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
           <div class="card-surface p-4 rounded-xl space-y-3" style="border: 1px solid var(--color-border);">
             <div class="flex items-center gap-2">
               <mat-icon style="color: var(--color-warning); font-size: 20px; width: 20px; height: 20px;">psychology</mat-icon>
-              <span class="text-display font-semibold text-sm" style="color: var(--color-text);">Predict the Winner (+10 bonus pts)</span>
+              <span class="text-display font-semibold text-sm" style="color: var(--color-text);">Predict the Winner</span>
+            </div>
+            <div class="text-xs space-y-2" style="color: var(--color-text-muted);">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold" style="background: var(--color-accent); color: white;">1</span>
+                <span>{{ data.match.team1 }} win: +10 pts</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold" style="background: var(--color-accent); color: white;">2</span>
+                <span>{{ data.match.team2 }} win: +10 pts</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold" style="background: var(--color-warning); color: white;">🔥</span>
+                <span>Super Over: +20 pts</span>
+              </div>
             </div>
             <div class="flex gap-3">
               <button class="prediction-btn flex-1"
-                      [class.prediction-btn--selected]="myPrediction() === data.match.team1"
+                      [class.prediction-btn--selected]="myPrediction() === data.match.team1 && myPredictionType() === 'winner'"
                       [disabled]="deadlinePassed() || predictionSaving()"
-                      (click)="submitPrediction(data.match.team1)">
+                      (click)="submitPrediction(data.match.team1, 'winner')">
                 {{ data.match.team1 }}
               </button>
               <button class="prediction-btn flex-1"
-                      [class.prediction-btn--selected]="myPrediction() === data.match.team2"
+                      [class.prediction-btn--selected]="myPrediction() === data.match.team2 && myPredictionType() === 'winner'"
                       [disabled]="deadlinePassed() || predictionSaving()"
-                      (click)="submitPrediction(data.match.team2)">
+                      (click)="submitPrediction(data.match.team2, 'winner')">
                 {{ data.match.team2 }}
+              </button>
+              <button class="prediction-btn flex-1"
+                      [class.prediction-btn--selected]="myPredictionType() === 'superover'"
+                      [disabled]="deadlinePassed() || predictionSaving()"
+                      (click)="submitPrediction('SUPEROVER', 'superover')"
+                      style="position: relative;">
+                <span style="font-size: 1.2em;">🔥</span>
+                <span style="font-size: 0.85em;">Superover</span>
               </button>
             </div>
             @if (myPrediction()) {
               <p class="text-xs text-center" style="color: var(--color-text-muted);">
-                You predicted {{ myPrediction() }} to win
+                @if (myPredictionType() === 'superover') {
+                  You bet on a Superover (+20 pts if correct)
+                } @else {
+                  You predicted {{ myPrediction() }} to win (+10 pts if correct)
+                }
               </p>
             }
           </div>
@@ -155,6 +181,7 @@ export class MatchDetailComponent {
   private readonly api = inject(ApiService);
 
   readonly myPrediction = signal<string | null>(null);
+  readonly myPredictionType = signal<'winner' | 'superover' | null>(null);
   readonly predictionSaving = signal(false);
 
   readonly squadData = resource({
@@ -165,7 +192,10 @@ export class MatchDetailComponent {
     loader: async (): Promise<any> => {
       try {
         const p = await firstValueFrom(this.api.getMyPrediction(this.id()));
-        if (p) this.myPrediction.set(p.predictedWinner);
+        if (p) {
+          this.myPrediction.set(p.predictedWinner);
+          this.myPredictionType.set(p.predictionType || 'winner');
+        }
         return p;
       } catch {
         return null;
@@ -229,12 +259,17 @@ export class MatchDetailComponent {
     return 'status-upcoming';
   });
 
-  submitPrediction(team: string) {
+  submitPrediction(team: string, predictionType: 'winner' | 'superover') {
     if (this.deadlinePassed()) return;
     this.predictionSaving.set(true);
-    this.api.upsertPrediction({ matchId: this.id(), predictedWinner: team }).subscribe({
+
+    // For superover, use a placeholder—actual team won't matter
+    const predictedWinner = predictionType === 'superover' ? (this.myPrediction() || 'CSK') : team;
+
+    this.api.upsertPrediction({ matchId: this.id(), predictedWinner, predictionType }).subscribe({
       next: (p: any) => {
         this.myPrediction.set(p.predictedWinner);
+        this.myPredictionType.set(p.predictionType || 'winner');
         this.predictionSaving.set(false);
       },
       error: () => this.predictionSaving.set(false),

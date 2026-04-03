@@ -2,8 +2,10 @@ const PlayerPerformance = require('../models/PlayerPerformance.model');
 const FantasyTeam = require('../models/FantasyTeam.model');
 const Player = require('../models/Player.model');
 const Match = require('../models/Match.model');
+const Prediction = require('../models/Prediction.model');
 const { calculateFantasyPoints, applyMultiplier } = require('./scoring.service');
 const { calculateAwards } = require('./awards.service');
+const { evaluatePredictions } = require('./prediction-evaluator.service');
 
 /**
  * Shared scoring pipeline used by both manual admin entry and CricAPI live polling.
@@ -55,7 +57,7 @@ async function processPerformances(matchId, performances, { markCompleted = fals
     await team.save();
   }
 
-  // 3. If finalizing: mark completed + awards
+  // 3. If finalizing: mark completed + awards + evaluate predictions
   if (markCompleted) {
     match.status = 'completed';
     await match.save();
@@ -65,6 +67,25 @@ async function processPerformances(matchId, performances, { markCompleted = fals
       ...(match.playingXI?.team2 || []),
     ];
     await calculateAwards(matchId, playerPointsMap, playingXIIds);
+
+    // Evaluate all predictions and award bonus points
+    await evaluatePredictions(matchId, match.result);
+
+    // Add prediction bonusPoints to team totalPoints
+    const predictions = await Prediction.find({ matchId });
+    const predictionsByUser = {}; // userId -> totalBonusPoints
+    for (const pred of predictions) {
+      const uid = String(pred.userId);
+      predictionsByUser[uid] = (predictionsByUser[uid] || 0) + pred.bonusPoints;
+    }
+
+    // Update each team's totalPoints with prediction bonuses
+    for (const team of teams) {
+      const uid = String(team.userId);
+      const bonusPoints = predictionsByUser[uid] || 0;
+      team.totalPoints = Math.round((team.totalPoints + bonusPoints) * 10) / 10;
+      await team.save();
+    }
   }
 
   return { teamsUpdated: teams.length, playerPointsMap };

@@ -114,6 +114,7 @@ export interface Prediction {
   userId: string | Pick<User, 'id' | 'name'>;
   matchId: string;
   predictedWinner: Franchise;
+  predictionType: 'winner' | 'superover';
   isCorrect: boolean | null;
   bonusPoints: number;
 }

@@ -2,7 +2,7 @@ const Prediction = require('../models/Prediction.model');
 const Match = require('../models/Match.model');
 
 const upsertPrediction = async (req, res) => {
-  const { matchId, predictedWinner } = req.body;
+  const { matchId, predictedWinner, predictionType = 'winner' } = req.body;
   try {
     const match = await Match.findById(matchId);
     if (!match) return res.status(404).json({ message: 'Match not found' });
@@ -11,7 +11,7 @@ const upsertPrediction = async (req, res) => {
     }
     const prediction = await Prediction.findOneAndUpdate(
       { userId: req.user._id, matchId },
-      { predictedWinner },
+      { predictedWinner, predictionType },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json(prediction);

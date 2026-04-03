@@ -138,7 +138,7 @@ export class ApiService {
   }
 
   // ── Predictions ────────────────────────────────────────────────────────────
-  upsertPrediction(payload: { matchId: string; predictedWinner: string }) {
+  upsertPrediction(payload: { matchId: string; predictedWinner: string; predictionType?: 'winner' | 'superover' }) {
     return this.http.post<Prediction>(`${this.base}/predictions`, payload);
   }
 
