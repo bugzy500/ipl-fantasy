@@ -138,4 +138,5 @@ export interface MoneyEntry {
 export interface SeasonInsightsResponse {
   insights: SeasonInsight[];
   money: MoneyEntry[];
+  awardPool?: number;
 }
