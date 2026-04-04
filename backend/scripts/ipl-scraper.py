@@ -1115,6 +1115,13 @@ def update_match_scores(db, cb_match_id, scorecard):
             players_by_name[parts[-1]] = p
         if p.get("cricbuzzId"):
             players_by_cbid[p["cricbuzzId"]] = p
+        # Also index by aliases (handles spelling variants like Suryavanshi/Sooryavanshi)
+        for alias in p.get("aliases", []):
+            alias_clean = alias.strip().lower()
+            players_by_name[alias_clean] = p
+            alias_parts = alias_clean.split()
+            if len(alias_parts) > 1:
+                players_by_name[alias_parts[-1]] = p
 
     def find_player(name=None, cb_id=None):
         if cb_id and cb_id in players_by_cbid:
