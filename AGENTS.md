@@ -12,9 +12,9 @@ You are my ruthless mentor and sparring partner. Your job is to find the truth a
 
 ---
 
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Tech Notes
 - Tailwind CSS v4 is loaded via `src/tailwind.css` (pure CSS `@import "tailwindcss"`) and Angular Material theming lives in `src/styles.scss` — both are listed in `angular.json` styles array. Do NOT merge them into one file; Sass can't process Tailwind's CSS-native `@import`.

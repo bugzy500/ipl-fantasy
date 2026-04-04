@@ -14,6 +14,11 @@ import json
 import time
 import random
 import requests
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
@@ -34,6 +39,8 @@ WA_URL = "https://wa.dotsai.cloud/api/send/text"
 WA_MEDIA_URL = "https://wa.dotsai.cloud/api/send/media"
 WA_TOKEN = os.environ.get('WA_TOKEN', os.environ.get('WHATSAPP_API_TOKEN', 'SET_WA_TOKEN_IN_ENV'))
 APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://ipl-fantasy-live.vercel.app').rstrip('/')
+# PostgreSQL GIF cache (multi-project shared pool)
+PG_DSN = os.environ.get('PG_DSN', 'postgresql://dotsai:6a0NxO3mjlcKrA7iYw7aVDnX7kyN9@127.0.0.1:5432/dotsai')
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 IST = timezone(timedelta(hours=5, minutes=30))
 DM_INTERVAL_MIN = 3
@@ -138,10 +145,80 @@ def send_dm(phone, message):
         return False
 
 
-def send_group(message):
+MENTION_NAME_OVERRIDES = {
+    "Daddy Cool": "Avdhesh",
+    "VVS": "Vaishali",
+    "Jayesh sharma": "Jayesh",
+    "Shubham Sharma": "Shubham",
+    "Arpit Garg": "Arpit",
+    "Meet": "Meet",
+    "Prashast": "Prashast",
+    "Nishant": "Nishant",
+    "Navneet": "Navneet",
+    "Rahul Sharma": "Rahul",
+    "Shashwat": "Shashwat",
+    "Kurja": "Kurja",
+    "IKCyas": "IKCyas",
+    "Infinity Max": "InfinityMax",
+}
+
+
+def normalize_phone(phone):
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    return digits if len(digits) >= 10 else None
+
+
+def mention_label(name):
+    label = MENTION_NAME_OVERRIDES.get(name, (name or "Player").strip().split()[0] or "Player")
+    clean = re.sub(r"[^A-Za-z0-9_]+", "", label)
+    return f"@{clean or 'Player'}"
+
+
+def mention_entry(name, phone):
+    """Returns (@phone_for_body, phone_for_mentions_array) when phone available.
+    Gateway needs @phonenumber in the message body to actually ping."""
+    normalized = normalize_phone(phone)
+    if normalized:
+        return f"@{normalized}", normalized
+    # No phone — fall back to display name (won't ping but at least readable)
+    label = MENTION_NAME_OVERRIDES.get(name, (name or "Player").strip().split()[0] or "Player")
+    return label, None
+
+
+def render_user_refs(users):
+    labels = []
+    mentions = []
+    for user in users or []:
+        label, phone = mention_entry(user.get("name"), user.get("phone"))
+        labels.append(label)
+        if phone:
+            mentions.append(phone)
+    if not labels:
+        return "", []
+    return ", ".join(labels), dedupe_mentions(mentions)
+
+
+def dedupe_mentions(mentions):
+    seen = set()
+    ordered = []
+    for phone in mentions or []:
+        normalized = normalize_phone(phone)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def send_group(message, mentions=None):
     """Send message to Saanp Premier League group."""
     try:
-        r = requests.post(WA_URL, json={"to": SPL_GROUP_JID, "message": message},
+        payload = {"to": SPL_GROUP_JID, "message": message}
+        mention_list = dedupe_mentions(mentions)
+        if mention_list:
+            payload["mentions"] = mention_list
+
+        r = requests.post(WA_URL, json=payload,
                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                          timeout=10)
         if r.ok:
@@ -154,20 +231,27 @@ def send_group(message):
         return False
 
 
-def send_group_gif(gif_url, caption=""):
-    """Send a GIF/image to the group with optional caption. Falls back to text if GIF fails."""
+def send_group_gif(gif_url, caption="", mentions=None):
+    """Send media to the group with optional caption. Falls back to text if media fails."""
     try:
-        # Try as image first (works better with .gif URLs)
+        mention_list = dedupe_mentions(mentions)
+        # Try as video first so the group sees an actual moving GIF/video, not a flattened still image.
+        payload = {"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption, "gifPlayback": True}
+        if mention_list:
+            payload["mentions"] = mention_list
         r = requests.post(WA_MEDIA_URL,
-                         json={"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption},
+                         json=payload,
                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                          timeout=15)
         if r.ok:
             print(f"    Group GIF sent")
             return True
-        # Retry as video
+        # Retry as image if the gateway rejects the media as video.
+        payload = {"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption}
+        if mention_list:
+            payload["mentions"] = mention_list
         r2 = requests.post(WA_MEDIA_URL,
-                          json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                          json=payload,
                           headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                           timeout=15)
         if r2.ok:
@@ -175,11 +259,11 @@ def send_group_gif(gif_url, caption=""):
             return True
         print(f"    Group GIF FAILED: {r.status_code} — falling back to text")
         # Fallback: send as plain text
-        send_group(caption)
+        send_group(caption, mentions=mention_list)
         return False
     except Exception as e:
         print(f"    Group GIF error: {e} — falling back to text")
-        send_group(caption)
+        send_group(caption, mentions=mentions)
         return False
 
 
@@ -189,60 +273,445 @@ AVATAR_BASE_URL = "https://dotsai.in/spl-avatars"
 
 GIFS = {
     "celebration": [
-        "https://media3.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.gif",
-        "https://media4.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.gif",
-        "https://media0.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.gif",
-        "https://media3.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.gif",
-        "https://media0.giphy.com/media/qia2rxxWQ6B01pOf10/giphy.gif",
-        "https://media1.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.gif",
+        "https://media.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.mp4",
+        "https://media.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.mp4",
+        "https://media.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.mp4",
+        "https://media.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.mp4",
+        "https://media.giphy.com/media/qia2rxxWQ6B01pOf10/giphy.mp4",
+        "https://media.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.mp4",
+        "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.mp4",  # the rock clapping
+        "https://media.giphy.com/media/l4pTfx2qLszoacZRS/giphy.mp4",  # leo dicaprio toast
     ],
     "wicket": [
-        "https://media4.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.gif",
-        "https://media1.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.gif",
-        "https://media3.giphy.com/media/THIImhwN2fV2q8EOvq/giphy.gif",
-        "https://media2.giphy.com/media/xB68elnmZURlOlOUZ1/giphy.gif",
-        "https://media4.giphy.com/media/2CUJFvoRXDrUeG1mOS/giphy.gif",
+        "https://media.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.mp4",
+        "https://media.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.mp4",
+        "https://media.giphy.com/media/THIImhwN2fV2q8EOvq/giphy.mp4",
+        "https://media.giphy.com/media/xB68elnmZURlOlOUZ1/giphy.mp4",
+        "https://media.giphy.com/media/2CUJFvoRXDrUeG1mOS/giphy.mp4",
+        "https://media.giphy.com/media/ko8zXh01jZPE4/giphy.mp4",
     ],
     "drama": [
-        "https://media1.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.gif",
-        "https://media0.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.gif",
-        "https://media3.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.gif",
-        "https://media1.giphy.com/media/evVKsrjZEqVVWvE2VR/giphy.gif",
-        "https://media1.giphy.com/media/ksioubEKq0ufcB4z1S/giphy.gif",
+        "https://media.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.mp4",
+        "https://media.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.mp4",
+        "https://media.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.mp4",
+        "https://media.giphy.com/media/evVKsrjZEqVVWvE2VR/giphy.mp4",
+        "https://media.giphy.com/media/ksioubEKq0ufcB4z1S/giphy.mp4",
+        "https://media.giphy.com/media/tyqcJoNjNv0Fq/giphy.mp4",
+        "https://media.giphy.com/media/uWzS6ZLs0AaVOJlgRd/giphy.mp4",
+    ],
+    "hype": [
+        "https://media.giphy.com/media/b1o4elHO8o03C/giphy.mp4",
+        "https://media.giphy.com/media/xUySTUZ8A2RJBQitwI/giphy.mp4",
+        "https://media.giphy.com/media/11sBLVxIRvnAwt/giphy.mp4",
+    ]
+}
+
+# All GIFs in one flat pool for static fallback
+ALL_GIFS = []
+for cat in GIFS.values():
+    ALL_GIFS.extend(cat)
+
+# ─── Giphy API (dynamic, anti-repeat) ───
+GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "")
+GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
+
+# Per-category search pools — specific enough to skip the top-5 viral repeats
+GIPHY_CATEGORY_QUERIES = {
+    "celebration": [
+        "victory dance party", "goal scored reaction", "yes pumped winning",
+        "touchdown celebration nfl", "championship win reaction", "excited cheering crowd",
+        "happy dance winning team", "fist pump success",
+    ],
+    "wicket": [
+        "it's over done finished", "mic drop walk away", "savage dismissal",
+        "you're out eliminated", "send off celebration", "bowled out stump",
+    ],
+    "drama": [
+        "shocked face reaction", "this is fine everything fine", "nervous sweating",
+        "mind blown explosion", "oh no disaster face", "panic button press",
+        "watching nervously hide", "covering eyes scared",
+    ],
+    "hype": [
+        "lets go hyped crowd", "pumped energy workout", "fire motivation",
+        "crowd goes wild", "goat greatest all time", "on fire unstoppable",
     ],
 }
 
-# All GIFs in one flat pool for truly random picks
-ALL_GIFS = GIFS["celebration"] + GIFS["wicket"] + GIFS["drama"]
+# Per-persona search pools — matched by first name in user_name
+# Non-cricket references, tied to their actual vibe
+GIPHY_PERSONA_QUERIES = {
+    # Prashast — F1 fan, races, speed, podium drama
+    "prashast": [
+        "formula 1 overtake", "f1 podium champagne", "pit crew fast",
+        "race car speed", "f1 lights out start", "lewis hamilton fist pump",
+    ],
+    # Vaishali — Taylor Swift stan, Eras tour era
+    "vaishali": [
+        "taylor swift surprised award", "taylor swift era tour dance",
+        "swifties reaction concert", "taylor swift shake it off",
+        "taylor swift winning speech", "taylor swift shocked happy",
+    ],
+    # Avdhesh — Punjabi music, Ammy Virk, desi energy
+    "avdhesh": [
+        "bhangra celebration dance", "punjabi dhol beat",
+        "desi wedding dance", "punjabi singer stage",
+        "tumbi dance folk", "desi celebration hands up",
+    ],
+    # Shubham — Zakir Khan comedy, storytelling, relatable writing humour
+    "shubham": [
+        "stand up comedy crowd laughing", "storyteller on stage",
+        "mic drop comedy", "writer typing inspired",
+        "comedian pointing relatable", "awkward funny situation",
+    ],
+    # Jayesh — Rohit Sharma fan (sixer king, chill Hitman energy)
+    "jayesh": [
+        "casual sixer chill", "effortless six hit",
+        "captain cool swagger", "batting hero moment",
+        "nonchalant batter walk", "slow motion six cricketer",
+    ],
+    # Arpit — Virat Kohli fan (aggressive, passionate, fired up)
+    "arpit": [
+        "aggressive celebration fist pump", "fired up player roar",
+        "passionate player intense", "run celebration screaming",
+        "battle cry victory sport", "never give up comeback",
+    ],
+    # Mannu — full of massive unstoppable energy
+    "mannu": [
+        "too much energy kid", "excited jumping up down",
+        "hyper person bouncing", "cannot contain excitement",
+        "over enthusiastic reaction", "kid in candy store excited",
+    ],
+    # Navneet — same vibe as Mannu
+    "navneet": [
+        "too much energy kid", "excited jumping up down",
+        "hyper person bouncing", "cannot contain excitement",
+    ],
+    # Nishant — professional, composed, office mode
+    "nishant": [
+        "professional nod suits", "harvey specter confident walk",
+        "office win smug smile", "michael scott celebration office",
+        "suit up confident", "boardroom approval nod",
+    ],
+}
 
 
-def pick_media(category, user_id=None):
+
+def _pg_conn():
+    """Get a PostgreSQL connection, or None if psycopg2 unavailable."""
+    if not psycopg2 or not PG_DSN:
+        return None
+    try:
+        return psycopg2.connect(PG_DSN, connect_timeout=3)
+    except Exception as e:
+        print(f"    PG connect error: {e}")
+        return None
+
+
+def _pg_get_unseen(query_tag, seen_ids, limit=10):
     """
-    Pick media for a milestone/takeover — returns (url, is_avatar).
-    Mix strategy:
-      - 40% chance: personalized cartoon avatar (if user_id available)
-      - 30% chance: category-specific GIF
-      - 30% chance: random GIF from full pool
-    This keeps it unpredictable — sometimes avatar, sometimes funny GIF.
+    Pull unseen GIFs from the PG cache matching query_tag.
+    Returns list of (giphy_id, mp4_url) tuples.
     """
+    conn = _pg_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if seen_ids:
+                cur.execute(
+                    """SELECT giphy_id, mp4_url FROM gif_cache
+                       WHERE query_tag = %s AND giphy_id != ALL(%s)
+                       ORDER BY used_count ASC, RANDOM() LIMIT %s""",
+                    (query_tag, list(seen_ids), limit)
+                )
+            else:
+                cur.execute(
+                    """SELECT giphy_id, mp4_url FROM gif_cache
+                       WHERE query_tag = %s
+                       ORDER BY used_count ASC, RANDOM() LIMIT %s""",
+                    (query_tag, limit)
+                )
+        return [(row["giphy_id"], row["mp4_url"]) for row in cur.fetchall()]
+    except Exception as e:
+        print(f"    PG read error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def _pg_store(giphy_id, mp4_url, category, query_tag):
+    """Store a newly discovered GIF into PG cache. Silently no-ops on conflict."""
+    conn = _pg_conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO gif_cache (giphy_id, mp4_url, category, query_tag)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (giphy_id) DO NOTHING""",
+                (giphy_id, mp4_url, category, query_tag)
+            )
+        conn.commit()
+    except Exception as e:
+        print(f"    PG store error: {e}")
+    finally:
+        conn.close()
+
+
+def _pg_mark_used(giphy_id):
+    """Increment used_count and update last_used timestamp for rotation fairness."""
+    conn = _pg_conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE gif_cache SET used_count = used_count + 1, last_used = NOW() WHERE giphy_id = %s",
+                (giphy_id,)
+            )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def fetch_giphy(query, state, limit=25, category="celebration"):
+    """
+    Fetch a fresh, unseen mp4 GIF. Two-layer strategy:
+      1. Giphy API  → stores every new result in PG cache
+      2. PG cache   → fallback when API rate-limited or fails
+    Dedup tracked via state['seen_giphy_ids'] (rolling window of 500).
+    """
+    seen_ids = state.setdefault("seen_giphy_ids", [])
+    seen_set = set(seen_ids)
+
+    def _pick_and_record(giphy_id, mp4_url):
+        seen_ids.append(giphy_id)
+        if len(seen_ids) > 500:
+            state["seen_giphy_ids"] = seen_ids[-400:]
+        _pg_mark_used(giphy_id)
+        return mp4_url
+
+    # ── Layer 1: Giphy API ──
+    if GIPHY_API_KEY:
+        try:
+            offset = random.randint(5, 200)
+            r = requests.get(GIPHY_SEARCH_URL, params={
+                "api_key": GIPHY_API_KEY,
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+                "rating": "pg-13",
+                "lang": "en",
+            }, timeout=8)
+
+            if r.ok:
+                data = r.json().get("data", [])
+                random.shuffle(data)
+                for gif in data:
+                    gif_id = gif.get("id", "")
+                    mp4_url = (gif.get("images", {}).get("original_mp4", {}).get("mp4", "")
+                               or gif.get("images", {}).get("fixed_height_small", {}).get("mp4", ""))
+                    if not mp4_url:
+                        continue
+                    # Always store in PG (builds up the shared pool over time)
+                    _pg_store(gif_id, mp4_url, category, query)
+                    if gif_id in seen_set:
+                        continue
+                    return _pick_and_record(gif_id, mp4_url)
+
+                # All from API already seen — clear half and retry from PG
+                state["seen_giphy_ids"] = seen_ids[len(seen_ids)//2:]
+                seen_set = set(state["seen_giphy_ids"])
+            else:
+                print(f"    Giphy API rate-limited ({r.status_code}) — falling back to PG cache")
+        except Exception as e:
+            print(f"    Giphy fetch error ({query}): {e}")
+
+    # ── Layer 2: PG cache fallback ──
+    cached = _pg_get_unseen(query, seen_set, limit=10)
+    if cached:
+        giphy_id, mp4_url = random.choice(cached)
+        print(f"    Using PG cache for '{query}' → {giphy_id[:8]}...")
+        return _pick_and_record(giphy_id, mp4_url)
+
+    return None
+
+
+
+
+def get_contextual_query(event_type, context=None):
+    """
+    Derive a sentiment-specific Giphy search query from live match data.
+    Takes the actual match numbers and returns a pinpoint search term
+    instead of a bland category name — makes every GIF feel earned.
+    """
+    ctx = context or {}
+
+    # ─ Batting ───
+    if event_type == "fifty":
+        sr = ctx.get("sr", 0)
+        sixes = ctx.get("sixes", 0)
+        if sr > 180:
+            return random.choice(["violent hitting slog blitz", "blazing batting carnage boundary"])
+        elif sr > 140 or sixes >= 3:
+            return random.choice(["aggressive batter pumped up", "big hitting fist pump"])
+        elif sr < 100:
+            return random.choice(["gritty innings relief exhausted", "hard fought milestone relief"])
+        return random.choice(["half century raise bat milestone", "fifty cricket celebration"])
+
+    if event_type == "century":
+        sr = ctx.get("sr", 0)
+        if sr > 160:
+            return random.choice(["fastest hundred blitz speed", "century carnage batting legend"])
+        return random.choice(["century arms open emotional crowd", "hundred milestone standing ovation"])
+
+    if event_type == "150":
+        return random.choice(["unstoppable power hitting destruction", "batting god record breaking"])
+
+    # ─ Wicket types ───
+    if event_type == "wicket_bowled":
+        return random.choice(["clean bowled stumps flying shocked", "bowled through gate stump cartwheels"])
+
+    if event_type == "wicket_lbw":
+        return random.choice(["trapped lbw finger raised appeal", "out lbw celebration appeal"])
+
+    if event_type == "wicket_caught":
+        sixes = ctx.get("sixes", 0)
+        if sixes >= 2:
+            return random.choice(["caught in deep mistimed slog", "top edge caught boundary"])
+        return random.choice(["brilliant catch slip diving", "taken clean catch celebration"])
+
+    if event_type == "wicket_stumped":
+        return random.choice(["lightning stumping keeper quick hands", "stumped beaten in flight"])
+
+    if event_type == "wicket_runout":
+        return random.choice(["direct hit run out brilliant fielding", "run out backing up shocked"])
+
+    if event_type == "wicket_cheap":
+        runs = ctx.get("runs", 0)
+        if runs == 0:
+            return random.choice(["golden duck walk shame", "duck out first ball shocked"])
+        return random.choice(["cheap dismissal early wicket frustration", "soft dismissal disappointing"])
+
+    # ─ Bowling ───
+    if event_type == "3wkt":
+        eco = ctx.get("economy", 0)
+        if eco < 6:
+            return random.choice(["bowling spell dominant miser", "three wickets cheap on fire"])
+        return random.choice(["wicket burst hat-trick hunt bowling", "bowling attack three wickets surge"])
+
+    if event_type == "fifer":
+        return random.choice(["five wicket haul legendary hall fame", "fifer bowling masterclass destroy"])
+
+    if event_type == "maiden":
+        return random.choice(["maiden over dots squeeze pressure", "miser bowler economy miserly"])
+
+    # ─ Team score in context ───
+    if event_type == "team_score":
+        runs = ctx.get("runs", 0)
+        rr = ctx.get("rr", 0)
+        innings_num = ctx.get("innings_num", 0)
+        wickets = ctx.get("wickets", 0)
+        if runs >= 200:
+            return random.choice(["200 mammoth total batting carnage", "huge score batting celebration"])
+        elif rr > 10 and wickets < 4:
+            return random.choice(["high run rate explosive fireworks", "boundary machine hitting carnage"])
+        elif innings_num == 1 and wickets >= 6:
+            return random.choice(["fighting partnership recovery innings", "tail wagging lower order resist"])
+        return random.choice(["team milestone score building", "steady progress partnership cricket"])
+
+    # ─ Innings break ───
+    if event_type == "innings_break":
+        target = ctx.get("target", 0)
+        if target > 220:
+            return random.choice(["impossible mountain daunting target nervous", "huge target impossible mission"])
+        elif target > 180:
+            return random.choice(["tough target tense nervous chase", "match knife edge tense finish"])
+        elif target < 140:
+            return random.choice(["easy chase comfortable target confident", "low target relief comfortable"])
+        return random.choice(["50 50 match evenly poised balanced", "anything can happen tense balanced"])
+
+    # ─ Leaderboard takeover ───
+    if event_type == "takeover":
+        rank = ctx.get("rank", 3)
+        if rank == 1:
+            return random.choice(["number one top spot king throne", "leaderboard leader champion podium"])
+        elif rank == 2:
+            return random.choice(["hot on heels chasing number one", "second place climbing podium"])
+        return random.choice(["climbing up leaderboard momentum surge", "rising up ranks movement"])
+
+    return random.choice(["celebration victory", "shocked reaction", "fired up energy"])
+
+
+def get_unseen_media(pool, state):
+    """Pick from a static pool with local repeat suppression."""
+    used = state.setdefault("used_media", []) if state is not None else []
+    unseen = [u for u in pool if u not in used]
+    if not unseen:
+        unseen = pool
+        if state is not None:
+            state["used_media"] = state["used_media"][len(state["used_media"])//2:]
+    choice = random.choice(unseen)
+    if state is not None:
+        state["used_media"].append(choice)
+        if len(state["used_media"]) > 200:
+            state["used_media"] = state["used_media"][-100:]
+    return choice
+
+
+def get_persona_media(user_name, state):
+    """Try Giphy first with persona query, return None if no match."""
+    if not user_name:
+        return None
+    name_lower = user_name.lower()
+    for persona, queries in GIPHY_PERSONA_QUERIES.items():
+        if persona in name_lower:
+            return fetch_giphy(random.choice(queries), state)
+    return None
+
+
+def pick_media(category, user_id=None, user_name=None, state=None, query_override=None):
+    """
+    Pick media with Giphy API + anti-repeat suppression.
+    Priority:
+      1. 25% persona GIF via Giphy (name match)
+      2. 25% avatar (user_id)
+      3. 35% Giphy: query_override (contextual) OR category query
+      4. 15% static fallback pool
+    """
+    if state is None:
+        state = {}
     roll = random.random()
 
-    # 40% avatar (only if user_id exists)
-    if user_id and roll < 0.4:
+    if user_name and roll < 0.25:
+        url = get_persona_media(user_name, state)
+        if url:
+            return url, False
+
+    if user_id and roll < 0.5:
         return f"{AVATAR_BASE_URL}/{user_id}.png", True
 
-    # 30% category-specific
-    if roll < 0.7:
-        pool = GIFS.get(category, ALL_GIFS)
-        return random.choice(pool), False
+    if roll < 0.85:
+        # Use contextual query if available, else fall back to category pool
+        if query_override:
+            url = fetch_giphy(query_override, state)
+            if url:
+                return url, False
+        queries = GIPHY_CATEGORY_QUERIES.get(category, GIPHY_CATEGORY_QUERIES["celebration"])
+        url = fetch_giphy(random.choice(queries), state)
+        if url:
+            return url, False
 
-    # 30% any random GIF
-    return random.choice(ALL_GIFS), False
+    pool = GIFS.get(category, ALL_GIFS)
+    return get_unseen_media(pool, state), False
 
 
-def send_milestone_media(msg, category="celebration", user_id=None):
-    """Send a milestone message with mixed media — GIF, avatar, or text fallback."""
-    url, is_avatar = pick_media(category, user_id)
+def send_milestone_media(msg, category="celebration", user_id=None, user_name=None, state=None, query_override=None):
+    """Send milestone message with Giphy-powered media, falls back to static then text."""
+    url, is_avatar = pick_media(category, user_id, user_name, state, query_override)
     send_group_gif(url, msg)
 
 
@@ -286,7 +755,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f4a5 *FIFTY!* {player_name} \U0001f525\n\n"
                            f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("fifty", {"sr": sr, "sixes": sixes})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
             # Century (100)
@@ -298,7 +768,8 @@ def detect_milestones(db, match, scorecard, state):
                            f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
                            f"WHAT. A. KNOCK. \U0001f525\U0001f525\U0001f525\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("century", {"sr": sr})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
             # 150 (special)
@@ -308,7 +779,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f92f *150 UP!* {player_name} is UNSTOPPABLE!\n\n"
                            f"{runs_scored} ({balls}) | {fours}x4, {sixes}x6\n\n"
                            f"This is MADNESS \U0001f525\U0001f525\U0001f525")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("150")
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Bowling milestones ──
@@ -326,7 +798,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f3af *{wk} WICKETS!* {bowler_name} is on fire!\n\n"
                            f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("3wkt", {"economy": econ})
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
             # 5-wicket haul (FIFER!)
@@ -337,7 +810,8 @@ def detect_milestones(db, match, scorecard, state):
                            f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
                            f"ABSOLUTE DESTRUCTION! \U0001f4a3\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("fifer")
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
             # Maiden over
@@ -347,17 +821,20 @@ def detect_milestones(db, match, scorecard, state):
                 if key not in sent_milestones:
                     msg = (f"\U0001f6e1\ufe0f *MAIDEN OVER!* {bowler_name}\n\n"
                            f"Dot dot dot dot dot dot! \U0001f525 Economy: {econ}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("maiden")
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Team score milestones ──
-        for target in [50, 100, 150, 200, 250, 300]:
-            if runs >= target:
-                key = f"team_{target}_{bat_team}_{i}"
+        rr = round(runs / overs, 2) if overs > 0 else 0
+        for target_score in [50, 100, 150, 200, 250, 300]:
+            if runs >= target_score:
+                key = f"team_{target_score}_{bat_team}_{i}"
                 if key not in sent_milestones:
-                    msg = (f"\U0001f4ca *{target} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
-                           f"{'Run rate: ' + str(round(runs / overs, 2)) + ' RPO' if overs > 0 else ''}")
-                    send_milestone_media(msg, "celebration")
+                    msg = (f"\U0001f4ca *{target_score} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
+                           f"{'Run rate: ' + str(rr) + ' RPO' if overs > 0 else ''}")
+                    q = get_contextual_query("team_score", {"runs": runs, "rr": rr, "innings_num": i, "wickets": wickets})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Wicket alerts (new dismissals) ──
@@ -367,21 +844,31 @@ def detect_milestones(db, match, scorecard, state):
                 runs_scored = bat.get("runs", 0)
                 balls = bat.get("balls", 0)
                 out_desc = bat.get("out_desc", "")
+                wc = bat.get("wicket_code", "")
                 key = f"out_{player_name}_{i}"
                 if key not in sent_milestones:
-                    # Only alert for batsmen who scored 20+ (meaningful wicket)
                     if runs_scored >= 20:
                         msg = (f"\u274c *WICKET!* {player_name} — {runs_scored} ({balls})\n"
                                f"{out_desc}\n\n"
                                f"\U0001f4ca {' | '.join(innings_summary)}")
-                        send_milestone_media(msg, "wicket")
+                        # Wicket-type-specific query
+                        wc_map = {
+                            "BOWLED":  "wicket_bowled",
+                            "LBW":     "wicket_lbw",
+                            "CAUGHT":  "wicket_caught",
+                            "STUMPED": "wicket_stumped",
+                            "RUNOUT":  "wicket_runout",
+                        }
+                        evt = wc_map.get(wc, "wicket_caught")
+                        q = get_contextual_query(evt, {"sixes": bat.get("sixes", 0), "runs": runs_scored})
+                        send_milestone_media(msg, "wicket", state=state, query_override=q)
                         new_milestones.append(key)
                     elif runs_scored < 5:
-                        # Cheap dismissal — drama!
                         msg = (f"\U0001f480 *OUT!* {player_name} gone for {runs_scored} ({balls})\n"
                                f"{out_desc}\n\n"
                                f"\U0001f4ca {' | '.join(innings_summary)}")
-                        send_milestone_media(msg, "drama")
+                        q = get_contextual_query("wicket_cheap", {"runs": runs_scored})
+                        send_milestone_media(msg, "drama", state=state, query_override=q)
                         new_milestones.append(key)
 
     # ── Innings break ──
@@ -398,7 +885,8 @@ def detect_milestones(db, match, scorecard, state):
                        f"({first_score.get('overs', 0)} ov)\n\n"
                        f"\U0001f3af *Target: {target}*\n\n"
                        f"Second innings coming up! \U0001f525")
-                send_milestone_media(msg, "drama")
+                q = get_contextual_query("innings_break", {"target": target})
+                send_milestone_media(msg, "drama", state=state, query_override=q)
                 new_milestones.append(key)
 
     # Save milestones to state
@@ -829,7 +1317,12 @@ def detect_takeovers(db, match, team_scores, state):
     # Build current ranking: {userName: {rank, points, userId}}
     current = {}
     for i, ts in enumerate(team_scores):
-        current[ts["userName"]] = {"rank": i + 1, "points": ts["totalPoints"], "userId": ts.get("userId", "")}
+        current[ts["userName"]] = {
+            "rank": i + 1,
+            "points": ts["totalPoints"],
+            "userId": ts.get("userId", ""),
+            "phone": ts.get("phone", ""),
+        }
 
     # Load previous ranking from state
     prev = state.get("last_dm", {}).get(rankings_key, {})
@@ -864,6 +1357,7 @@ def detect_takeovers(db, match, team_scores, state):
                     takeovers.append({
                         "name": name,
                         "userId": cur_info.get("userId", ""),
+                        "phone": cur_info.get("phone", ""),
                         "prev_rank": prev_rank,
                         "cur_rank": cur_rank,
                         "points_gained": points_gained,
@@ -911,15 +1405,14 @@ def detect_takeovers(db, match, team_scores, state):
                f"\U0001f525 The race is ON!")
 
         # Tiered media based on rank reached:
-        #   1st-2nd: solid celebration GIF
-        #   3rd: normal random GIF
         rank = to["cur_rank"]
-        if rank <= 2:
-            send_group_gif(random.choice(GIFS["celebration"]), msg)
-        elif rank == 3:
-            send_group_gif(random.choice(ALL_GIFS), msg)
+        takeover_mentions = dedupe_mentions([to.get("phone")])
+        if rank <= 3:
+            cat = "celebration" if rank <= 2 else "hype"
+            url, _ = pick_media(cat, user_id=to.get("userId"), user_name=to["name"], state=state)
+            send_group_gif(url, msg, mentions=takeover_mentions)
         else:
-            send_group(msg)
+            send_group(msg, mentions=takeover_mentions)
         sent_takeovers.add(dedup)
         print(f"    Takeover: {to['name']} #{to['prev_rank']}->{to['cur_rank']} (overtook {overtaken_names})")
 
@@ -1032,10 +1525,13 @@ def send_submission_reminders(db, state):
                     if str(m["_id"]) in submitted_user_ids:
                         submitted.append(name)
                     else:
-                        pending.append(name)
+                        pending.append({
+                            "name": name,
+                            "phone": m.get("phone", ""),
+                        })
 
                 submitted_text = ", ".join(submitted) if submitted else "Nobody yet!"
-                pending_text = ", ".join(pending) if pending else "All done! \U0001f389"
+                pending_text, pending_mentions = render_user_refs(pending) if pending else ("All done! \U0001f389", [])
 
                 urgency = {40: "\u23f0", 20: "\u26a0\ufe0f", 10: "\U0001f6a8"}
                 mins_display = round(mins_left)
@@ -1047,7 +1543,7 @@ def send_submission_reminders(db, state):
                        f"\u274c *Pending:* {pending_text}\n\n"
                        f"Lock your team now! \U0001f449 {APP_BASE_URL}")
 
-                send_group(msg)
+                send_group(msg, mentions=pending_mentions)
                 state.setdefault("last_dm", {})[tier_key] = True
                 print(f"    Reminder sent: {tier_min}min tier for {match['team1']} vs {match['team2']}")
                 break  # Only send one tier per run
@@ -1199,17 +1695,21 @@ def auto_generate_missing_teams(db, match):
             db.fantasyteams.insert_one(doc)
             user = db.users.find_one({"_id": uid})
             name = user.get("name", "?") if user else "?"
-            auto_picked.append(name)
+            auto_picked.append({
+                "name": name,
+                "phone": user.get("phone", "") if user else "",
+            })
             print(f"    Randomizer: auto-picked team for {name}")
         except Exception as e:
             # Duplicate key = already has a team (race condition)
             print(f"    Randomizer: skip {uid} — {e}")
 
     if auto_picked:
-        names = ", ".join(auto_picked)
+        names, mentions = render_user_refs(auto_picked)
         send_group(
             f"\U0001f3b2 *Auto-picked teams* for: {names}\n\n"
-            f"Missed the deadline — random team from playing XI assigned!"
+            f"Missed the deadline — random team from playing XI assigned!",
+            mentions=mentions,
         )
 
     return auto_picked
@@ -1353,6 +1853,7 @@ def send_squad_announcement(db, match, state):
         f"\U0001f7e0 *{t1_name}:*\n{t1_names}\n",
         f"\U0001f535 *{t2_name}:*\n{t2_names}\n",
     ]
+    alert_mentions = []
 
     # Check submitted teams for non-playing players
     league = db.leagues.find_one({"season": "IPL_2026"})
@@ -1377,7 +1878,10 @@ def send_squad_announcement(db, match, state):
 
             if not_playing:
                 names_str = ", ".join(not_playing)
-                edit_alerts.append(f"\u26a0\ufe0f *{user_name}*: Replace {names_str}")
+                label, phone = mention_entry(user_name, user.get("phone", ""))
+                if phone:
+                    alert_mentions.append(phone)
+                edit_alerts.append(f"\u26a0\ufe0f *{label}*: Replace {names_str}")
 
         if edit_alerts:
             msg_parts.append("\u2757 *Edit your team — these players are NOT playing:*\n")
@@ -1387,7 +1891,7 @@ def send_squad_announcement(db, match, state):
             msg_parts.append("\u2705 All submitted teams have only playing XI players!")
 
     msg = "\n".join(msg_parts)
-    send_group(msg)
+    send_group(msg, mentions=alert_mentions)
     state.setdefault("last_dm", {})[squad_key] = True
     print(f"    Squad announcement sent for {t1_name} vs {t2_name}")
 
