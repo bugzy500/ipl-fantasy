@@ -1715,150 +1715,6 @@ def auto_generate_missing_teams(db, match):
     return auto_picked
 
 
-# ─── Auto-Shuffle: replace non-playing XI picks with playing alternatives ───
-def auto_shuffle_non_playing(db, match, state):
-    """
-    After playingXI is announced, scan all submitted fantasy teams.
-    Any picked player NOT in the playing XI gets swapped for the best
-    available playing XI player of the same role (highest credits, not
-    already in the team). Captain/VC are swapped too — tag preserved.
-
-    Runs ONCE per match via state key. Sends WhatsApp notification per swap.
-    """
-    match_id = match["_id"]
-    shuffle_key = f"{match_id}_auto_shuffled"
-
-    if state.get("last_dm", {}).get(shuffle_key):
-        return
-
-    playing_xi = match.get("playingXI", {})
-    t1_ids = [str(pid) for pid in playing_xi.get("team1", [])]
-    t2_ids = [str(pid) for pid in playing_xi.get("team2", [])]
-    if not t1_ids or not t2_ids:
-        return
-
-    all_playing_ids = set(t1_ids + t2_ids)
-
-    # Pre-load all playing XI players for replacement pool
-    playing_players = {
-        str(p["_id"]): p
-        for p in db.players.find({"_id": {"$in": [ObjectId(pid) for pid in all_playing_ids]}})
-    }
-
-    # Get league members
-    league = db.leagues.find_one({"season": "IPL_2026"})
-    if not league:
-        return
-    member_ids = league.get("members", [])
-
-    submitted_teams = list(db.fantasyteams.find({
-        "matchId": match_id,
-        "userId": {"$in": member_ids},
-    }))
-
-    swap_alerts = []
-
-    for team in submitted_teams:
-        user = db.users.find_one({"_id": team["userId"]})
-        if not user:
-            continue
-
-        team_player_ids = [str(pid) for pid in team.get("players", [])]
-        team_set = set(team_player_ids)
-        swaps = []
-        new_player_list = list(team.get("players", []))
-        captain_id = str(team.get("captain", ""))
-        vc_id = str(team.get("viceCaptain", ""))
-        new_captain = team.get("captain")
-        new_vc = team.get("viceCaptain")
-
-        for i, pid_obj in enumerate(team.get("players", [])):
-            pid = str(pid_obj)
-            if pid in all_playing_ids:
-                continue
-
-            # This player is NOT in playing XI — find replacement
-            old_player = db.players.find_one({"_id": ObjectId(pid)})
-            if not old_player:
-                continue
-
-            old_role = old_player.get("role", "BAT")
-
-            # Find best replacement: same role, in playing XI, not already in team
-            candidates = [
-                p for p_id, p in playing_players.items()
-                if p_id not in team_set and p.get("role") == old_role
-            ]
-            # Sort by credits desc (pick the best available)
-            candidates.sort(key=lambda p: p.get("credits", 0), reverse=True)
-
-            if not candidates:
-                # Fallback: any role, any playing XI player not in team
-                candidates = [
-                    p for p_id, p in playing_players.items()
-                    if p_id not in team_set
-                ]
-                candidates.sort(key=lambda p: p.get("credits", 0), reverse=True)
-
-            if not candidates:
-                continue
-
-            replacement = candidates[0]
-            rep_id = str(replacement["_id"])
-
-            # Swap in the list
-            new_player_list[i] = ObjectId(rep_id)
-            team_set.discard(pid)
-            team_set.add(rep_id)
-
-            # Preserve captain/VC tag
-            if pid == captain_id:
-                new_captain = ObjectId(rep_id)
-            if pid == vc_id:
-                new_vc = ObjectId(rep_id)
-
-            swaps.append((old_player["name"], replacement["name"], old_role))
-
-        if not swaps:
-            continue
-
-        # Update team in DB
-        update_fields = {"players": new_player_list}
-        if new_captain != team.get("captain"):
-            update_fields["captain"] = new_captain
-        if new_vc != team.get("viceCaptain"):
-            update_fields["viceCaptain"] = new_vc
-
-        db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": update_fields})
-
-        user_name = user.get("name", "?")
-        swap_lines = [f"  {old} → {new} ({role})" for old, new, role in swaps]
-        swap_alerts.append({
-            "user_name": user_name,
-            "phone": user.get("phone", ""),
-            "swaps": swap_lines,
-        })
-        print(f"    AutoShuffle: {user_name} — {len(swaps)} swap(s)")
-
-    # Send group notification
-    if swap_alerts:
-        msg_parts = ["\U0001f504 *Auto-Shuffle — Non-Playing XI Replaced:*\n"]
-        mentions = []
-        for alert in swap_alerts:
-            label, phone = mention_entry(alert["user_name"], alert["phone"])
-            if phone:
-                mentions.append(phone)
-            msg_parts.append(f"*{label}:*")
-            msg_parts.extend(alert["swaps"])
-            msg_parts.append("")
-
-        msg_parts.append("Players not in today's XI were auto-replaced with the best available playing alternative.")
-        send_group("\n".join(msg_parts), mentions=mentions)
-
-    state.setdefault("last_dm", {})[shuffle_key] = True
-    print(f"    AutoShuffle complete: {len(swap_alerts)} team(s) modified")
-
-
 def update_playing_11_best_effort_basis(match: dict, db) -> bool:
     """
     Best-effort: fetch Playing XI from Cricbuzz and write player ObjectIds into
@@ -2123,19 +1979,7 @@ def main():
                 except Exception as e:
                     print(f"  Squad announcement error: {e}")
 
-                # 3a-ii. Auto-shuffle non-playing XI picks (ONLY after deadline)
-                deadline = lm.get("deadline") or (lm["scheduledAt"] + timedelta(minutes=30))
-                now_utc = datetime.now(timezone.utc)
-                dl_utc = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
-                if now_utc >= dl_utc:
-                    try:
-                        auto_shuffle_non_playing(db, lm, state)
-                    except Exception as shuf_err:
-                        print(f"  AutoShuffle error: {shuf_err}")
-                else:
-                    print(f"  AutoShuffle skipped — deadline not passed yet")
-
-                # 3a-iii. Infinity Max smart team builder (runs BEFORE randomizer)
+                # 3a-ii. Infinity Max smart team builder (runs BEFORE randomizer)
                 try:
                     im_result = auto_build_and_submit(db, lm, state)
                     if im_result:
@@ -2145,7 +1989,7 @@ def main():
                 except Exception as im_err:
                     print(f"  Infinity Max builder error: {im_err}")
 
-                # 3a-iv. Auto-generate teams for users who missed deadline
+                # 3a-iii. Auto-generate teams for users who missed deadline
                 rando_key = f"{lm['_id']}_randomized"
                 if state.get("last_dm", {}).get(rando_key):
                     continue
