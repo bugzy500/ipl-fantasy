@@ -340,11 +340,11 @@ export class TeamBuilderComponent implements OnInit {
     if (this.creditsUsed() > BUDGET) return `Over budget by ${(this.creditsUsed() - BUDGET).toFixed(1)} credits`;
 
     const rc = this.roleCounts();
-    if (rc.WK < 1 || rc.WK > 4) return 'Need 1-4 Wicket-Keepers';
+    if (rc.WK < 1) return 'Need at least 1 Wicket-Keeper';
     const batTotal = rc.WK + rc.BAT;
-    if (batTotal < 3 || batTotal > 6) return 'Need 3-6 Batters (WK included)';
-    if (rc.AR < 2 || rc.AR > 6) return 'Need 2-6 All-Rounders';
-    if (rc.BOWL < 2 || rc.BOWL > 6) return 'Need 2-6 Bowlers';
+    if (batTotal < 3) return 'Need at least 3 Batters (WK included)';
+    if (rc.AR < 1) return 'Need at least 1 All-Rounder';
+    if (rc.BOWL < 2) return 'Need at least 2 Bowlers';
 
     const maxFranchise = Math.max(...Object.values(this.franchiseCounts()));
     if (maxFranchise > 7) return 'Max 7 players from one franchise';
