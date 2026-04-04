@@ -350,78 +350,86 @@ async function generateScenarios(matchId) {
   const currentRanks = {};
   for (const s of currentStandings) currentRanks[s.userId] = s.rank;
 
-  // Find "active" players — currently batting or bowling
+  // ── Classify each player's realistic state ──
+  // Role determines WHAT they can do. Current state determines what's POSSIBLE.
   const activePlayers = [];
   for (const [pid, perf] of Object.entries(perfByPlayer)) {
     const player = playerById[pid];
     if (!player) continue;
+    const role = player.role;
 
     const isBatting = perf.didBat && !perf.isDismissed;
-    const isBowling = perf.oversBowled > 0 && perf.oversBowled < 4 &&
-      ['BOWL', 'AR'].includes(player.role);
-    // Include any player with a perf record who might still contribute
-    const hasPerf = perf.didBat || perf.oversBowled > 0;
+    const battingDone = perf.didBat && perf.isDismissed;
+    const canBat = ['BAT', 'WK', 'AR'].includes(role); // bowlers don't bat meaningfully
+    const isBowling = perf.oversBowled > 0 && perf.oversBowled < 4;
+    const bowlingDone = perf.oversBowled >= 4;
+    const canBowl = ['BOWL', 'AR'].includes(role);
 
-    if (isBatting || isBowling || hasPerf) {
-      activePlayers.push({ pid, player, perf, isBatting, isBowling });
-    }
+    activePlayers.push({ pid, player, perf, role, isBatting, battingDone, canBat, isBowling, bowlingDone, canBowl });
   }
 
-  // Define scenarios for each active player
+  // ── Generate REALISTIC scenarios only ──
   const rawScenarios = [];
 
-  for (const { pid, player, perf, isBatting, isBowling } of activePlayers) {
+  for (const { pid, player, perf, role, isBatting, battingDone, canBat, isBowling, bowlingDone, canBowl } of activePlayers) {
     const name = player.name;
+    const currentRuns = perf.runs || 0;
+    const currentBalls = perf.ballsFaced || 0;
+    const currentWickets = perf.wickets || 0;
+    const currentOvers = perf.oversBowled || 0;
+    const remainingOvers = 4 - currentOvers;
 
-    // Batting scenarios (if currently batting)
+    // ── BATTING scenarios — only if currently at crease ──
     if (isBatting) {
-      const currentRuns = perf.runs || 0;
-
       // Gets out at current score
       rawScenarios.push({
-        event: `${name} gets out at ${currentRuns}`,
+        event: `${name} gets out at ${currentRuns} (${currentBalls}b)`,
         playerId: pid,
         perfOverride: { ...perf, isDismissed: true },
       });
 
-      // Scores 10 more
+      // +10 runs — always realistic if batting
       rawScenarios.push({
-        event: `${name} scores ${currentRuns + 10} (adds 10 runs)`,
+        event: `${name} adds 10 more (${currentRuns + 10} total)`,
         playerId: pid,
         perfOverride: {
           ...perf,
           runs: currentRuns + 10,
-          ballsFaced: (perf.ballsFaced || 0) + 7,
+          ballsFaced: currentBalls + 7,
           fours: (perf.fours || 0) + 1,
         },
       });
 
-      // Reaches 50 (if not already there)
-      if (currentRuns < 50) {
+      // Reaches 50 — only if realistic (needs < 40 more runs AND has faced < 30 balls)
+      if (currentRuns >= 20 && currentRuns < 50) {
         const runsNeeded = 50 - currentRuns;
+        const sr = currentBalls > 0 ? (currentRuns / currentBalls) * 100 : 130;
+        const ballsNeeded = Math.round(runsNeeded / (sr / 100));
         rawScenarios.push({
-          event: `${name} reaches 50 (+${runsNeeded} runs)`,
+          event: `${name} reaches 50 (needs ${runsNeeded} more, ~${ballsNeeded}b at current SR)`,
           playerId: pid,
           perfOverride: {
             ...perf,
             runs: 50,
-            ballsFaced: (perf.ballsFaced || 0) + Math.round(runsNeeded * 0.8),
+            ballsFaced: currentBalls + ballsNeeded,
             fours: (perf.fours || 0) + Math.round(runsNeeded / 12),
             sixes: (perf.sixes || 0) + Math.round(runsNeeded / 20),
           },
         });
       }
 
-      // Reaches 100 (if not already there)
-      if (currentRuns < 100) {
+      // Reaches 100 — only for top-order BAT/WK who are already 40+
+      if (currentRuns >= 40 && currentRuns < 100 && ['BAT', 'WK'].includes(role)) {
         const runsNeeded = 100 - currentRuns;
+        const sr = currentBalls > 0 ? (currentRuns / currentBalls) * 100 : 130;
+        const ballsNeeded = Math.round(runsNeeded / (sr / 100));
         rawScenarios.push({
-          event: `${name} scores a century (+${runsNeeded} runs)`,
+          event: `${name} scores a century (needs ${runsNeeded} more, ~${ballsNeeded}b)`,
           playerId: pid,
           perfOverride: {
             ...perf,
             runs: 100,
-            ballsFaced: (perf.ballsFaced || 0) + Math.round(runsNeeded * 0.75),
+            ballsFaced: currentBalls + ballsNeeded,
             fours: (perf.fours || 0) + Math.round(runsNeeded / 10),
             sixes: (perf.sixes || 0) + Math.round(runsNeeded / 15),
           },
@@ -429,70 +437,66 @@ async function generateScenarios(matchId) {
       }
     }
 
-    // Bowling scenarios
-    if (isBowling) {
-      const currentWickets = perf.wickets || 0;
-
+    // ── BOWLING scenarios — only if currently bowling (has overs left) ──
+    if (isBowling && canBowl && remainingOvers > 0) {
       // Takes next wicket
       rawScenarios.push({
-        event: `${name} takes a wicket (${currentWickets + 1} total)`,
+        event: `${name} takes a wicket (${currentWickets + 1}W in ${currentOvers}ov)`,
         playerId: pid,
-        perfOverride: {
-          ...perf,
-          wickets: currentWickets + 1,
-        },
+        perfOverride: { ...perf, wickets: currentWickets + 1 },
       });
 
-      // Gets 3-wicket haul
-      if (currentWickets < 3) {
+      // 3-wicket haul — only if already has 2
+      if (currentWickets === 2) {
         rawScenarios.push({
-          event: `${name} gets 3 wickets`,
+          event: `${name} gets 3rd wicket`,
           playerId: pid,
           perfOverride: { ...perf, wickets: 3 },
         });
       }
 
-      // Gets 4-wicket haul (bonus trigger)
-      if (currentWickets < 4) {
+      // 4-wicket haul — only if already has 3
+      if (currentWickets === 3) {
         rawScenarios.push({
-          event: `${name} takes 4 wickets (+8 bonus)`,
+          event: `${name} takes 4th wicket (+8 bonus)`,
           playerId: pid,
           perfOverride: { ...perf, wickets: 4 },
         });
       }
 
-      // Bowls a maiden
-      rawScenarios.push({
-        event: `${name} bowls a maiden over`,
-        playerId: pid,
-        perfOverride: {
-          ...perf,
-          maidens: (perf.maidens || 0) + 1,
-          oversBowled: (perf.oversBowled || 0) + 1,
-        },
-      });
+      // Maiden over — only if economy is reasonable (< 10)
+      const econ = currentOvers > 0 ? (perf.runsConceded || 0) / currentOvers : 8;
+      if (econ < 10) {
+        rawScenarios.push({
+          event: `${name} bowls a maiden (${currentOvers + 1}ov, 0 runs)`,
+          playerId: pid,
+          perfOverride: {
+            ...perf,
+            maidens: (perf.maidens || 0) + 1,
+            oversBowled: currentOvers + 1,
+          },
+        });
+      }
 
-      // Gets expensive (concedes 15 in an over)
+      // Gets expensive — concedes 15+ in an over
       rawScenarios.push({
-        event: `${name} concedes 15 runs in an over`,
+        event: `${name} concedes 18 in an over (econ jumps)`,
         playerId: pid,
         perfOverride: {
           ...perf,
-          runsConceded: (perf.runsConceded || 0) + 15,
-          oversBowled: (perf.oversBowled || 0) + 1,
+          runsConceded: (perf.runsConceded || 0) + 18,
+          oversBowled: currentOvers + 1,
         },
       });
     }
 
-    // Fielding scenario (any player)
-    if (perf.didBat || perf.oversBowled > 0) {
+    // ── FIELDING — catch scenario for any active fielder ──
+    if (!battingDone || isBowling || bowlingDone) {
+      // Only if player is on the field (not dismissed batsman sitting in pavilion)
       rawScenarios.push({
         event: `${name} takes a catch (+8 pts)`,
         playerId: pid,
-        perfOverride: {
-          ...perf,
-          catches: (perf.catches || 0) + 1,
-        },
+        perfOverride: { ...perf, catches: (perf.catches || 0) + 1 },
       });
     }
   }

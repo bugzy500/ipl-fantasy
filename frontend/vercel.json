@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "http://72.62.229.16:5050/api/$1" },
+    { "source": "/api/(.*)", "destination": "https://ipl.dotsai.cloud/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
