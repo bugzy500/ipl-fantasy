@@ -97,8 +97,39 @@ test('run-out fielder name resolves to full name', () => {
   assert.equal(orphan, undefined, 'no orphan');
 });
 
-test('ambiguous last name creates separate entry (no wrong merge)', () => {
-  // Two Sharmas — partial "Sharma" should NOT merge into either
+// Ambiguous surname tests are covered by the two tests above:
+// - "R Sharma" resolves via initial
+// - bare "Sharma" stays orphaned safely
+
+test('initial + last name resolves ambiguous surname ("R Sharma" → "Rohit Sharma")', () => {
+  // Two Sharmas but dismissal has initial "R Sharma" — should resolve to Rohit
+  const raw = buildFakeScorecard(
+    [
+      { batsman: { name: 'KL Rahul' }, r: 10, b: 8, '4s': 1, '6s': 0, dismissal: 'c R Sharma b Bumrah' },
+    ],
+    [
+      { bowler: { name: 'Jasprit Bumrah' }, o: 4, r: 20, w: 1, m: 0 },
+    ],
+    [
+      { batsman: { name: 'Rohit Sharma' }, r: 40, b: 30, '4s': 4, '6s': 2, dismissal: 'not out' },
+      { batsman: { name: 'Ishant Sharma' }, r: 5, b: 10, '4s': 0, '6s': 0, dismissal: 'not out' },
+    ],
+    []
+  );
+
+  const { performances } = mapScorecardToPerformances(raw);
+  const rohit = performances.find((p) => p.cricApiName === 'Rohit Sharma');
+  const ishant = performances.find((p) => p.cricApiName === 'Ishant Sharma');
+  const orphan = performances.find((p) => p.cricApiName === 'R Sharma');
+
+  assert.ok(rohit, 'Rohit Sharma should exist');
+  assert.equal(rohit.catches, 1, 'catch should go to Rohit via initial match');
+  assert.equal(ishant.catches, 0, 'Ishant should have 0 catches');
+  assert.equal(orphan, undefined, 'no orphan "R Sharma" entry');
+});
+
+test('bare surname with multiple matches stays orphaned (safe)', () => {
+  // Just "Sharma" with two Sharmas — can't resolve, stays orphaned
   const raw = buildFakeScorecard(
     [
       { batsman: { name: 'KL Rahul' }, r: 10, b: 8, '4s': 1, '6s': 0, dismissal: 'c Sharma b Bumrah' },
@@ -115,10 +146,13 @@ test('ambiguous last name creates separate entry (no wrong merge)', () => {
 
   const { performances } = mapScorecardToPerformances(raw);
   const orphan = performances.find((p) => p.cricApiName === 'Sharma');
+  const rohit = performances.find((p) => p.cricApiName === 'Rohit Sharma');
+  const ishant = performances.find((p) => p.cricApiName === 'Ishant Sharma');
 
-  // With two Sharmas, partial "Sharma" can't resolve — creates its own entry
-  assert.ok(orphan, 'ambiguous "Sharma" should remain as separate entry');
+  assert.ok(orphan, 'ambiguous "Sharma" stays as orphan');
   assert.equal(orphan.catches, 1);
+  assert.equal(rohit.catches, 0, 'Rohit not wrongly credited');
+  assert.equal(ishant.catches, 0, 'Ishant not wrongly credited');
 });
 
 test('c & b pattern credits both catch and bowling wicket to same player', () => {

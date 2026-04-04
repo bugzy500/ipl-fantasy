@@ -356,24 +356,49 @@ function mapScorecardToPerformances(scorecardData) {
     // Already an exact key in playerMap
     if (playerMap[partialName]) return partialName;
 
-    const partial = partialName.toLowerCase().replace(/\s+/g, ' ').trim();
+    const partial = partialName.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
     const partialParts = partial.split(' ');
     const partialLast = partialParts[partialParts.length - 1];
+    const partialFirst = partialParts.length > 1 ? partialParts[0] : null;
 
-    // Try last-name match against known full names
-    const candidates = knownNames.filter((full) => {
-      const fullLower = full.toLowerCase();
+    // Score each known name — higher score = better match
+    let bestMatch = null;
+    let bestScore = 0;
+    let tieCount = 0;
+
+    for (const full of knownNames) {
+      const fullLower = full.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
       const fullParts = fullLower.split(' ');
       const fullLast = fullParts[fullParts.length - 1];
-      if (fullLast !== partialLast) return false;
-      // If partial has a first initial, check it matches
-      if (partialParts.length > 1 && partialParts[0].length <= 2) {
-        return fullParts[0].startsWith(partialParts[0][0]);
-      }
-      return true;
-    });
 
-    return candidates.length === 1 ? candidates[0] : partialName;
+      if (fullLast !== partialLast) continue;
+
+      let score = 1; // base: last name matches
+
+      if (partialFirst) {
+        const fullFirst = fullParts[0];
+        if (partialFirst === fullFirst) {
+          score = 4; // exact first name match ("rohit" == "rohit")
+        } else if (partialFirst.length <= 2 && fullFirst.startsWith(partialFirst[0])) {
+          score = 3; // initial match ("r" matches "rohit")
+        } else if (fullFirst.startsWith(partialFirst) || partialFirst.startsWith(fullFirst)) {
+          score = 2; // prefix match ("rash" matches "rashid")
+        } else {
+          continue; // first name given but doesn't match — skip
+        }
+      }
+
+      if (score > bestScore) {
+        bestMatch = full;
+        bestScore = score;
+        tieCount = 1;
+      } else if (score === bestScore) {
+        tieCount++;
+      }
+    }
+
+    // Only resolve if there's exactly one best match (no ambiguity)
+    return (bestMatch && tieCount === 1) ? bestMatch : partialName;
   }
 
   // Process fielding from dismissals
