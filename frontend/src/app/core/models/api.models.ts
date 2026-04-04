@@ -209,6 +209,38 @@ export interface ForecastEntry {
   pointRange: { min: number; max: number };
 }
 
+export interface ScenarioSwap {
+  userId: string;
+  userName: string;
+  oldRank: number;
+  newRank: number;
+  direction: 'up' | 'down';
+  change: number;
+}
+
+export interface ScenarioOwner {
+  userName: string;
+  multiplier: string;
+}
+
+export interface Scenario {
+  event: string;
+  playerName: string;
+  playerId: string;
+  impact: number;
+  swaps: ScenarioSwap[];
+  owners: ScenarioOwner[];
+  ownedBy: number;
+}
+
+export interface ScenariosResponse {
+  matchId: string;
+  matchLabel: string;
+  scenarios: Scenario[];
+  totalEvaluated: number;
+  generatedAt: string;
+}
+
 export interface ForecastResponse {
   matchId: string;
   matchLabel: string;

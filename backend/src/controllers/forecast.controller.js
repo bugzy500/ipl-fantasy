@@ -1,4 +1,4 @@
-const { generateForecast } = require('../services/leaderboard-forecast.service');
+const { generateForecast, generateScenarios } = require('../services/leaderboard-forecast.service');
 
 const getLeaderboardForecast = async (req, res) => {
   try {
@@ -9,4 +9,13 @@ const getLeaderboardForecast = async (req, res) => {
   }
 };
 
-module.exports = { getLeaderboardForecast };
+const getScenarios = async (req, res) => {
+  try {
+    const scenarios = await generateScenarios(req.params.matchId);
+    res.json(scenarios);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { getLeaderboardForecast, getScenarios };

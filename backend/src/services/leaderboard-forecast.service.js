@@ -282,4 +282,283 @@ async function generateForecast(matchId) {
   };
 }
 
-module.exports = { generateForecast };
+/**
+ * Scenario engine — "What If" analysis.
+ *
+ * For each active player (currently batting/bowling), simulate key events
+ * and calculate the exact leaderboard ripple effect.
+ *
+ * Returns scenarios sorted by impact (biggest position swaps first).
+ */
+async function generateScenarios(matchId) {
+  const match = await Match.findById(matchId);
+  if (!match) throw new Error('Match not found');
+
+  const activeMemberIds = await getActiveLeagueMemberIds();
+  if (activeMemberIds.length === 0) return [];
+
+  const perfs = await PlayerPerformance.find({ matchId }).lean();
+  const perfByPlayer = {};
+  for (const p of perfs) perfByPlayer[String(p.playerId)] = p;
+
+  const allPlayers = await Player.find({ isActive: true }).lean();
+  const playerById = {};
+  for (const p of allPlayers) playerById[String(p._id)] = p;
+
+  const teams = await FantasyTeam.find({ matchId, userId: { $in: activeMemberIds } })
+    .populate('userId', 'name')
+    .lean();
+
+  const seasonAgg = await FantasyTeam.aggregate([
+    { $match: { userId: { $in: activeMemberIds } } },
+    { $lookup: { from: 'matches', localField: 'matchId', foreignField: '_id', as: 'match' } },
+    { $unwind: '$match' },
+    { $match: { 'match.status': 'completed' } },
+    { $group: { _id: '$userId', totalPoints: { $sum: '$totalPoints' } } },
+  ]);
+  const seasonTotals = {};
+  for (const s of seasonAgg) seasonTotals[String(s._id)] = s.totalPoints;
+
+  // Calculate CURRENT standings (actual live points)
+  function calcTeamPoints(overridePerfs) {
+    const results = [];
+    for (const team of teams) {
+      if (!team.userId) continue;
+      const uid = String(team.userId._id || team.userId);
+      let matchPts = 0;
+      for (const playerId of team.players) {
+        const pid = String(playerId);
+        const perf = overridePerfs[pid] || perfByPlayer[pid];
+        const player = playerById[pid];
+        const role = player?.role || 'BAT';
+        const pts = perf ? calculateFantasyPoints(perf, role) : 0;
+        const isCap = String(team.captain) === pid;
+        const isVC = String(team.viceCaptain) === pid;
+        matchPts += applyMultiplier(pts, isCap, isVC);
+      }
+      matchPts = Math.round(matchPts * 10) / 10;
+      const seasonTotal = Math.round(((seasonTotals[uid] || 0) + matchPts) * 10) / 10;
+      results.push({ userId: uid, userName: team.userId.name || '?', matchPts, seasonTotal });
+    }
+    results.sort((a, b) => b.seasonTotal - a.seasonTotal);
+    results.forEach((r, i) => { r.rank = i + 1; });
+    return results;
+  }
+
+  // Current standings
+  const currentStandings = calcTeamPoints({});
+  const currentRanks = {};
+  for (const s of currentStandings) currentRanks[s.userId] = s.rank;
+
+  // Find "active" players — currently batting or bowling
+  const activePlayers = [];
+  for (const [pid, perf] of Object.entries(perfByPlayer)) {
+    const player = playerById[pid];
+    if (!player) continue;
+
+    const isBatting = perf.didBat && !perf.isDismissed;
+    const isBowling = perf.oversBowled > 0 && perf.oversBowled < 4 &&
+      ['BOWL', 'AR'].includes(player.role);
+    // Include any player with a perf record who might still contribute
+    const hasPerf = perf.didBat || perf.oversBowled > 0;
+
+    if (isBatting || isBowling || hasPerf) {
+      activePlayers.push({ pid, player, perf, isBatting, isBowling });
+    }
+  }
+
+  // Define scenarios for each active player
+  const rawScenarios = [];
+
+  for (const { pid, player, perf, isBatting, isBowling } of activePlayers) {
+    const name = player.name;
+
+    // Batting scenarios (if currently batting)
+    if (isBatting) {
+      const currentRuns = perf.runs || 0;
+
+      // Gets out at current score
+      rawScenarios.push({
+        event: `${name} gets out at ${currentRuns}`,
+        playerId: pid,
+        perfOverride: { ...perf, isDismissed: true },
+      });
+
+      // Scores 10 more
+      rawScenarios.push({
+        event: `${name} scores ${currentRuns + 10} (adds 10 runs)`,
+        playerId: pid,
+        perfOverride: {
+          ...perf,
+          runs: currentRuns + 10,
+          ballsFaced: (perf.ballsFaced || 0) + 7,
+          fours: (perf.fours || 0) + 1,
+        },
+      });
+
+      // Reaches 50 (if not already there)
+      if (currentRuns < 50) {
+        const runsNeeded = 50 - currentRuns;
+        rawScenarios.push({
+          event: `${name} reaches 50 (+${runsNeeded} runs)`,
+          playerId: pid,
+          perfOverride: {
+            ...perf,
+            runs: 50,
+            ballsFaced: (perf.ballsFaced || 0) + Math.round(runsNeeded * 0.8),
+            fours: (perf.fours || 0) + Math.round(runsNeeded / 12),
+            sixes: (perf.sixes || 0) + Math.round(runsNeeded / 20),
+          },
+        });
+      }
+
+      // Reaches 100 (if not already there)
+      if (currentRuns < 100) {
+        const runsNeeded = 100 - currentRuns;
+        rawScenarios.push({
+          event: `${name} scores a century (+${runsNeeded} runs)`,
+          playerId: pid,
+          perfOverride: {
+            ...perf,
+            runs: 100,
+            ballsFaced: (perf.ballsFaced || 0) + Math.round(runsNeeded * 0.75),
+            fours: (perf.fours || 0) + Math.round(runsNeeded / 10),
+            sixes: (perf.sixes || 0) + Math.round(runsNeeded / 15),
+          },
+        });
+      }
+    }
+
+    // Bowling scenarios
+    if (isBowling) {
+      const currentWickets = perf.wickets || 0;
+
+      // Takes next wicket
+      rawScenarios.push({
+        event: `${name} takes a wicket (${currentWickets + 1} total)`,
+        playerId: pid,
+        perfOverride: {
+          ...perf,
+          wickets: currentWickets + 1,
+        },
+      });
+
+      // Gets 3-wicket haul
+      if (currentWickets < 3) {
+        rawScenarios.push({
+          event: `${name} gets 3 wickets`,
+          playerId: pid,
+          perfOverride: { ...perf, wickets: 3 },
+        });
+      }
+
+      // Gets 4-wicket haul (bonus trigger)
+      if (currentWickets < 4) {
+        rawScenarios.push({
+          event: `${name} takes 4 wickets (+8 bonus)`,
+          playerId: pid,
+          perfOverride: { ...perf, wickets: 4 },
+        });
+      }
+
+      // Bowls a maiden
+      rawScenarios.push({
+        event: `${name} bowls a maiden over`,
+        playerId: pid,
+        perfOverride: {
+          ...perf,
+          maidens: (perf.maidens || 0) + 1,
+          oversBowled: (perf.oversBowled || 0) + 1,
+        },
+      });
+
+      // Gets expensive (concedes 15 in an over)
+      rawScenarios.push({
+        event: `${name} concedes 15 runs in an over`,
+        playerId: pid,
+        perfOverride: {
+          ...perf,
+          runsConceded: (perf.runsConceded || 0) + 15,
+          oversBowled: (perf.oversBowled || 0) + 1,
+        },
+      });
+    }
+
+    // Fielding scenario (any player)
+    if (perf.didBat || perf.oversBowled > 0) {
+      rawScenarios.push({
+        event: `${name} takes a catch (+8 pts)`,
+        playerId: pid,
+        perfOverride: {
+          ...perf,
+          catches: (perf.catches || 0) + 1,
+        },
+      });
+    }
+  }
+
+  // Evaluate each scenario
+  const scenarios = [];
+  for (const { event, playerId, perfOverride } of rawScenarios) {
+    const overrides = { [playerId]: perfOverride };
+    const newStandings = calcTeamPoints(overrides);
+
+    // Find position changes
+    const swaps = [];
+    for (const ns of newStandings) {
+      const oldRank = currentRanks[ns.userId] || 99;
+      if (ns.rank !== oldRank) {
+        swaps.push({
+          userId: ns.userId,
+          userName: ns.userName,
+          oldRank,
+          newRank: ns.rank,
+          direction: ns.rank < oldRank ? 'up' : 'down',
+          change: Math.abs(oldRank - ns.rank),
+        });
+      }
+    }
+
+    if (swaps.length === 0) continue; // Skip boring scenarios
+
+    // Calculate total impact (sum of all position changes)
+    const impact = swaps.reduce((sum, s) => sum + s.change, 0);
+
+    // Who owns this player and as what role?
+    const owners = [];
+    for (const team of teams) {
+      if (!team.userId) continue;
+      const hasPick = team.players.some((p) => String(p) === playerId);
+      if (!hasPick) continue;
+      const isCap = String(team.captain) === playerId;
+      const isVC = String(team.viceCaptain) === playerId;
+      owners.push({
+        userName: team.userId.name || '?',
+        multiplier: isCap ? '2x (C)' : isVC ? '1.5x (VC)' : '1x',
+      });
+    }
+
+    scenarios.push({
+      event,
+      playerName: playerById[playerId]?.name || '?',
+      playerId,
+      impact,
+      swaps,
+      owners,
+      ownedBy: owners.length,
+    });
+  }
+
+  // Sort by impact (biggest leaderboard shakeups first)
+  scenarios.sort((a, b) => b.impact - a.impact);
+
+  return {
+    matchId: String(match._id),
+    matchLabel: `${match.team1} vs ${match.team2}`,
+    scenarios: scenarios.slice(0, 20), // Top 20 most impactful
+    totalEvaluated: rawScenarios.length,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+module.exports = { generateForecast, generateScenarios };
