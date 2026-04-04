@@ -9,7 +9,7 @@ const Player = require('../models/Player.model');
 const FantasyTeam = require('../models/FantasyTeam.model');
 const PlayerPerformance = require('../models/PlayerPerformance.model');
 const User = require('../models/User.model');
-const League = require('../models/League.model');
+const { getActiveLeague, getActiveLeagueMemberIdSet, getActiveLeagueMemberIds } = require('./league-members.service');
 const { calculateFantasyPoints, applyMultiplier } = require('./scoring.service');
 const { calculateAwards } = require('./awards.service');
 const { getScorecard, mapScorecardToPerformances } = require('./cricket-data.service');
@@ -19,14 +19,15 @@ const { sendDeadlineReminders, sendScoreUpdates, sendMatchSummaries } = require(
 const sentReminders = new Set(); // matchId strings
 // Track last score update time per match to avoid spamming
 const lastDMUpdate = new Map(); // matchId -> timestamp
+const LIVE_DM_INTERVAL_MS = 3 * 60 * 1000;
 
 /**
  * Get all league members with phone numbers.
  */
 async function getLeagueMembers() {
-  const league = await League.findOne({});
-  if (!league) return [];
-  return User.find({ _id: { $in: league.members }, phone: { $ne: '' } });
+  const activeMemberIds = await getActiveLeagueMemberIds();
+  if (activeMemberIds.length === 0) return [];
+  return User.find({ _id: { $in: activeMemberIds }, phone: { $ne: '' } });
 }
 
 /**
@@ -34,6 +35,8 @@ async function getLeagueMembers() {
  */
 async function liveScoreTick() {
   try {
+    if (!process.env.CRICKET_DATA_API_KEY) return;
+
     const liveMatches = await Match.find({ status: 'live', cricApiMatchId: { $exists: true, $ne: '' } });
     if (liveMatches.length === 0) return;
 
@@ -84,13 +87,15 @@ async function liveScoreTick() {
           await team.save();
         }
 
-        // Send personal DMs every 15 minutes (not every poll)
+        // Send live DMs on the 3-minute poll cadence.
         const now = Date.now();
         const lastSent = lastDMUpdate.get(String(match._id)) || 0;
-        if (now - lastSent >= 15 * 60 * 1000) {
+        if (now - lastSent >= LIVE_DM_INTERVAL_MS) {
+          const activeMemberIdSet = await getActiveLeagueMemberIdSet();
           const sortedTeams = [...teams].sort((a, b) => b.totalPoints - a.totalPoints);
           const topUsers = [];
           for (const t of sortedTeams) {
+            if (!activeMemberIdSet.has(String(t.userId))) continue;
             const user = await User.findById(t.userId);
             if (user) topUsers.push({ userId: t.userId, userName: user.name, totalPoints: t.totalPoints });
           }
@@ -130,7 +135,7 @@ async function deadlineReminderTick() {
       const matchKey = String(match._id);
       if (sentReminders.has(matchKey)) continue;
 
-      const league = await League.findOne({});
+      const league = await getActiveLeague();
       if (!league) continue;
 
       const submittedTeams = await FantasyTeam.find({ matchId: match._id });

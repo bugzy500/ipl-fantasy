@@ -80,6 +80,58 @@ export interface PlayerPerformance {
   runOutDirect: number;
   runOutIndirect: number;
   fantasyPoints: number;
+  storedFantasyPoints?: number;
+  scoreBreakdown: ScoreBreakdown;
+}
+
+export interface ScoreBreakdownItem {
+  label: string;
+  detail: string;
+  points: number;
+}
+
+export interface ScoreBreakdownSection {
+  key: 'batting' | 'bowling' | 'fielding';
+  label: string;
+  subtotal: number;
+  items: ScoreBreakdownItem[];
+}
+
+export interface ScoreBreakdown {
+  total: number;
+  sections: ScoreBreakdownSection[];
+}
+
+export interface ScoringRule {
+  label: string;
+  points: number;
+  displayPoints: string;
+  note?: string;
+}
+
+export interface ScoringRuleSection {
+  key: 'batting' | 'bowling' | 'fielding';
+  title: string;
+  icon: string;
+  color: string;
+  rules: ScoringRule[];
+}
+
+export interface ScoringMultiplier {
+  key: 'captain' | 'viceCaptain';
+  label: string;
+  multiplier: number;
+  displayMultiplier: string;
+  note: string;
+}
+
+export interface ScoringRulesResponse {
+  thresholds: {
+    strikeRateMinBalls: number;
+    economyMinOvers: number;
+  };
+  sections: ScoringRuleSection[];
+  multipliers: ScoringMultiplier[];
 }
 
 export interface LeaderboardEntry {

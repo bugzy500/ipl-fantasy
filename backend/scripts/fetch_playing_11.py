@@ -100,7 +100,7 @@ class FetchActualPlaying11:
             logger.warning("No IPL match found for %s vs %s on Cricbuzz Home API", t1, t2)
             return empty_result
 
-        logger.info("Resolved Cricbuzz match ID: %d", match_id)
+        logger.info("Resolved Cricbuzz match ID: %s", match_id)
 
         # Step 2 — scrape the squads page for both playing XIs
         playing_xi = self._get_playing_xi(match_id, t1, t2)
@@ -132,9 +132,7 @@ class FetchActualPlaying11:
 
         matches = data.get("matches", [])
         pair = {team1.upper(), team2.upper()}
-
-        # Collect all IPL fixtures between the two teams that are not complete.
-        candidates: list[tuple[int, int]] = []  # (startDate_epoch, matchId)
+        candidates: list[tuple[int, int]] = []
 
         for entry in matches:
             match_info = entry.get("match", {}).get("matchInfo", {})
@@ -150,29 +148,34 @@ class FetchActualPlaying11:
             if {t1_short, t2_short} != pair:
                 continue
 
-            # Skip matches already marked complete
             state = match_info.get("state", "").lower()
             if state == "complete":
-                logger.debug("Skipping completed match %s (%s vs %s)", match_info.get("matchId"), t1_short, t2_short)
+                logger.debug(
+                    "Skipping completed match %s (%s vs %s)",
+                    match_info.get("matchId"),
+                    t1_short,
+                    t2_short,
+                )
                 continue
 
-            start_date = match_info.get("startDate", 0)
-            match_id   = match_info.get("matchId", -1)
-            candidates.append((int(start_date), int(match_id)))
+            start_date = int(match_info.get("startDate", 0) or 0)
+            match_id = int(match_info.get("matchId", -1) or -1)
+            if match_id != -1:
+                candidates.append((start_date, match_id))
 
         if not candidates:
             return -1
 
-        # Pick the fixture with the earliest start date
-        candidates.sort(key=lambda x: x[0])
+        candidates.sort(key=lambda item: item[0])
         earliest_match_id = candidates[0][1]
         if len(candidates) > 1:
             logger.info(
                 "Multiple upcoming fixtures found for %s vs %s — picking earliest (matchId=%d)",
-                team1, team2, earliest_match_id,
+                team1,
+                team2,
+                earliest_match_id,
             )
         return earliest_match_id
-
 
     # ─── Private: Playing XI extraction ──────────────────────────────────────
 
@@ -349,7 +352,7 @@ class FetchActualPlaying11:
 
 # ─── CLI entry point ─────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def _run_cli() -> int:
     import sys
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
@@ -358,7 +361,7 @@ if __name__ == "__main__":
     if "--test" in sys.argv:
         logging.getLogger().setLevel(logging.DEBUG)
         success = test_fetch()
-        sys.exit(0 if success else 1)
+        return 0 if success else 1
 
     # ── Configure the two teams to fetch ─────────────────────────────────
     TEAM_1 = "CSK"
@@ -379,6 +382,7 @@ if __name__ == "__main__":
                 print(f"  {idx:2d}. {name}")
         else:
             print(f"\n{team}: Playing XI not available yet")
+    return 0
 
 
 
@@ -546,3 +550,7 @@ def test_fetch():
     else:
         print("  All tests passed!")
         return True
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_cli())

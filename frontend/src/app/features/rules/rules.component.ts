@@ -1,37 +1,32 @@
-import { Component, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
-
-interface ScoringRule {
-  label: string;
-  points: string;
-  note?: string;
-}
-
-interface ScoringSection {
-  title: string;
-  icon: string;
-  color: string;
-  rules: ScoringRule[];
-}
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { ApiService } from '../../core/services/api.service';
+import { ScoringMultiplier, ScoringRuleSection } from '../../core/models/api.models';
 
 @Component({
   selector: 'app-rules',
   standalone: true,
-  imports: [MatIconModule],
+  imports: [MatIconModule, MatProgressSpinnerModule],
   template: `
     <div class="space-y-8 fade-up">
-      <!-- Header -->
-      <div>
-        <h1 class="text-display text-2xl md:text-3xl" style="color: var(--color-text);">
-          How to Play
-        </h1>
-        <p class="mt-2 text-sm" style="color: var(--color-text-muted); line-height: 1.7;">
-          Build your fantasy XI for each IPL match, pick a Captain and Vice-Captain,
-          and compete with friends on the leaderboard.
-        </p>
+      <div class="space-y-3">
+        <div class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider"
+             style="background: rgba(34, 197, 94, 0.12); color: var(--color-success);">
+          <span class="w-2 h-2 rounded-full" style="background: currentColor;"></span>
+          Rules pulled from the live scoring engine
+        </div>
+        <div>
+          <h1 class="text-display text-2xl md:text-3xl" style="color: var(--color-text);">
+            How Scoring Works
+          </h1>
+          <p class="mt-2 text-sm" style="color: var(--color-text-muted); line-height: 1.7;">
+            This page is now driven by the same backend rules that calculate fantasy points.
+            If the rules change, this page changes with them. No more frontend fiction.
+          </p>
+        </div>
       </div>
 
-      <!-- Quick rules -->
       <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         @for (card of quickRules; track card.title) {
           <div class="card-surface rounded-xl p-5 space-y-3 stagger-item fade-up"
@@ -53,90 +48,119 @@ interface ScoringSection {
         }
       </div>
 
-      <!-- Scoring tables -->
-      <div>
-        <h2 class="text-display text-lg mb-4" style="color: var(--color-text);">Scoring System</h2>
-        <div class="space-y-4">
-          @for (section of scoringSections; track section.title) {
-            <div class="card-surface rounded-xl overflow-hidden stagger-item fade-up"
-                 style="border: 1px solid var(--color-border);">
-              <button class="w-full flex items-center gap-3 p-4 text-left"
-                      style="background: transparent; border: none; cursor: pointer;"
-                      (click)="toggle(section.title)">
-                <mat-icon [style.color]="section.color" style="font-size: 20px; width: 20px; height: 20px;">
-                  {{ section.icon }}
-                </mat-icon>
-                <span class="text-display font-semibold text-sm flex-1" style="color: var(--color-text);">
-                  {{ section.title }}
-                </span>
-                <mat-icon class="section-chevron"
-                          [class.section-chevron--open]="openSection() === section.title"
-                          style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
-                  expand_more
-                </mat-icon>
-              </button>
+      @if (loading()) {
+        <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
+      }
 
-              @if (openSection() === section.title) {
-                <div class="px-4 pb-4">
-                  <div class="scoring-table">
-                    @for (rule of section.rules; track rule.label) {
-                      <div class="scoring-row">
-                        <span class="scoring-label">{{ rule.label }}</span>
-                        <span class="scoring-points"
-                              [style.color]="rule.points.startsWith('-') ? 'var(--color-danger)' : 'var(--color-accent-hover)'">
-                          {{ rule.points }}
-                        </span>
-                      </div>
-                      @if (rule.note) {
-                        <div class="scoring-note">{{ rule.note }}</div>
+      @if (error()) {
+        <div class="card-surface rounded-xl p-5" style="border: 1px solid var(--color-danger);">
+          <p class="text-sm" style="color: var(--color-danger);">{{ error() }}</p>
+        </div>
+      }
+
+      @if (!loading() && !error()) {
+        <div class="card-surface rounded-xl p-5 space-y-3" style="border: 1px solid var(--color-border);">
+          <h2 class="text-display font-semibold text-sm" style="color: var(--color-text);">
+            Thresholds That Matter
+          </h2>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="threshold-card">
+              <span class="threshold-label">Strike rate modifier</span>
+              <span class="threshold-value">Applies from {{ strikeRateMinBalls() }} balls faced</span>
+            </div>
+            <div class="threshold-card">
+              <span class="threshold-label">Economy modifier</span>
+              <span class="threshold-value">Applies from {{ economyMinOvers() }} overs bowled</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 class="text-display text-lg mb-4" style="color: var(--color-text);">Scoring System</h2>
+          <div class="space-y-4">
+            @for (section of scoringSections(); track section.key) {
+              <div class="card-surface rounded-xl overflow-hidden stagger-item fade-up"
+                   style="border: 1px solid var(--color-border);">
+                <button class="w-full flex items-center gap-3 p-4 text-left"
+                        style="background: transparent; border: none; cursor: pointer;"
+                        (click)="toggle(section.key)">
+                  <mat-icon [style.color]="section.color" style="font-size: 20px; width: 20px; height: 20px;">
+                    {{ section.icon }}
+                  </mat-icon>
+                  <span class="text-display font-semibold text-sm flex-1" style="color: var(--color-text);">
+                    {{ section.title }}
+                  </span>
+                  <mat-icon class="section-chevron"
+                            [class.section-chevron--open]="openSection() === section.key"
+                            style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                    expand_more
+                  </mat-icon>
+                </button>
+
+                @if (openSection() === section.key) {
+                  <div class="px-4 pb-4">
+                    <div class="scoring-table">
+                      @for (rule of section.rules; track rule.label) {
+                        <div class="scoring-row">
+                          <div class="space-y-1">
+                            <span class="scoring-label">{{ rule.label }}</span>
+                            @if (rule.note) {
+                              <div class="scoring-note">{{ rule.note }}</div>
+                            }
+                          </div>
+                          <span class="scoring-points" [style.color]="pointColor(rule.points)">
+                            {{ rule.displayPoints }}
+                          </span>
+                        </div>
                       }
-                    }
+                    </div>
                   </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="card-elevated rounded-xl p-5 space-y-3"
+             style="border: 1px solid var(--color-accent-muted);">
+          <h3 class="text-display font-semibold text-sm" style="color: var(--color-text);">
+            Captain & Vice-Captain Multiplier
+          </h3>
+          <div class="flex flex-wrap gap-4">
+            @for (multiplier of multipliers(); track multiplier.key) {
+              <div class="flex items-center gap-3">
+                <span class="multiplier-badge"
+                      [class.multiplier-badge--c]="multiplier.key === 'captain'"
+                      [class.multiplier-badge--vc]="multiplier.key === 'viceCaptain'">
+                  {{ multiplier.key === 'captain' ? 'C' : 'VC' }}
+                </span>
+                <div>
+                  <span class="text-sm font-medium" style="color: var(--color-text);">
+                    {{ multiplier.label }}
+                  </span>
+                  <p class="text-xs" style="color: var(--color-text-muted);">
+                    {{ multiplier.displayMultiplier }} fantasy points
+                  </p>
                 </div>
-              }
-            </div>
-          }
-        </div>
-      </div>
-
-      <!-- Captain / VC multiplier -->
-      <div class="card-elevated rounded-xl p-5 space-y-3"
-           style="border: 1px solid var(--color-accent-muted);">
-        <h3 class="text-display font-semibold text-sm" style="color: var(--color-text);">
-          Captain & Vice-Captain Multiplier
-        </h3>
-        <div class="flex gap-6">
-          <div class="flex items-center gap-3">
-            <span class="multiplier-badge multiplier-badge--c">C</span>
-            <div>
-              <span class="text-sm font-medium" style="color: var(--color-text);">Captain</span>
-              <p class="text-xs" style="color: var(--color-text-muted);">2x fantasy points</p>
-            </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="multiplier-badge multiplier-badge--vc">VC</span>
-            <div>
-              <span class="text-sm font-medium" style="color: var(--color-text);">Vice-Captain</span>
-              <p class="text-xs" style="color: var(--color-text-muted);">1.5x fantasy points</p>
-            </div>
+              </div>
+            }
           </div>
         </div>
-      </div>
 
-      <!-- Deadlines info -->
-      <div class="card-surface rounded-xl p-5 space-y-3"
-           style="border: 1px solid var(--color-border);">
-        <h3 class="text-display font-semibold text-sm" style="color: var(--color-text);">
-          Deadlines & Locking
-        </h3>
-        <ul class="space-y-2 text-xs" style="color: var(--color-text-muted); line-height: 1.7;">
-          <li>Teams lock 30 minutes before the scheduled match time.</li>
-          <li>You can edit your team any number of times before the deadline.</li>
-          <li>Once locked, your team cannot be changed.</li>
-          <li>If you don't submit a team, you score 0 for that match.</li>
-          <li>Watch for reminder notifications as the deadline approaches.</li>
-        </ul>
-      </div>
+        <div class="card-surface rounded-xl p-5 space-y-3"
+             style="border: 1px solid var(--color-border);">
+          <h3 class="text-display font-semibold text-sm" style="color: var(--color-text);">
+            Deadlines & Locking
+          </h3>
+          <ul class="space-y-2 text-xs" style="color: var(--color-text-muted); line-height: 1.7;">
+            <li>Teams lock exactly when the first ball is bowled.</li>
+            <li>You can edit your team any number of times before the deadline.</li>
+            <li>Once locked, your team cannot be changed.</li>
+            <li>If you do not submit a team, you score 0 for that match.</li>
+            <li>Player scorecards in live and completed matches show the exact point breakdown.</li>
+          </ul>
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -148,6 +172,29 @@ interface ScoringSection {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+    }
+
+    .threshold-card {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface-elevated);
+    }
+
+    .threshold-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-subtle);
+    }
+
+    .threshold-value {
+      font-size: 13px;
+      color: var(--color-text);
     }
 
     .section-chevron {
@@ -164,27 +211,28 @@ interface ScoringSection {
     .scoring-row {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 10px 0;
       border-bottom: 1px solid var(--color-border);
     }
     .scoring-row:last-of-type {
       border-bottom: none;
     }
     .scoring-label {
+      display: block;
       font-size: 13px;
-      color: var(--color-text-muted);
+      color: var(--color-text);
     }
     .scoring-points {
       font-family: var(--font-display);
       font-weight: 600;
       font-size: 13px;
+      white-space: nowrap;
     }
     .scoring-note {
       font-size: 11px;
       color: var(--color-text-subtle);
-      padding: 0 0 8px;
-      border-bottom: 1px solid var(--color-border);
     }
 
     .multiplier-badge {
@@ -204,112 +252,90 @@ interface ScoringSection {
       color: #F59E0B;
     }
     .multiplier-badge--vc {
-      background: rgba(245, 158, 11, 0.08);
+      background: rgba(217, 119, 6, 0.12);
       color: #D97706;
     }
   `],
 })
-export class RulesComponent {
-  readonly openSection = signal<string | null>('Batting');
+export class RulesComponent implements OnInit {
+  private readonly api = inject(ApiService);
+
+  readonly openSection = signal<'batting' | 'bowling' | 'fielding' | null>('batting');
+  readonly scoringSections = signal<ScoringRuleSection[]>([]);
+  readonly multipliers = signal<ScoringMultiplier[]>([]);
+  readonly strikeRateMinBalls = signal(10);
+  readonly economyMinOvers = signal(2);
+  readonly loading = signal(true);
+  readonly error = signal('');
 
   readonly quickRules = [
     {
       icon: 'group_add',
       title: 'Pick 11 Players',
-      description: 'Select exactly 11 players from both teams within the credit budget. Mix of batters, bowlers, all-rounders, and wicketkeepers.',
-      accent: '#7C3AED',
-      bg: 'rgba(124, 58, 237, 0.12)',
+      description: 'Select exactly 11 players from both teams within the credit budget. Keep the role split legal and stay under the cap.',
+      accent: '#3B82F6',
+      bg: 'rgba(59, 130, 246, 0.12)',
     },
     {
       icon: 'star',
       title: 'Choose C & VC',
-      description: 'Pick a Captain (2x points) and Vice-Captain (1.5x points) wisely. They are your biggest point multipliers.',
+      description: 'Captain scores 2x. Vice-Captain scores 1.5x. If you get these wrong, the leaderboard punishes you hard.',
       accent: '#F59E0B',
       bg: 'rgba(245, 158, 11, 0.12)',
     },
     {
       icon: 'timer',
       title: 'Beat the Deadline',
-      description: 'Submit your team before it locks (30 min before match). Edit unlimited times before deadline.',
+      description: 'Your XI locks at the first ball. After that, no edits, no excuses.',
       accent: '#E8534A',
       bg: 'rgba(232, 83, 74, 0.12)',
     },
     {
       icon: 'scoreboard',
-      title: 'Earn Fantasy Points',
-      description: 'Players earn points for runs, wickets, catches, and more. Bonuses for milestones and strike rate.',
+      title: 'See The Math',
+      description: 'Live and completed matches now show batting, bowling, fielding, and modifier line-items behind every player total.',
       accent: '#22C55E',
       bg: 'rgba(34, 197, 94, 0.12)',
     },
     {
       icon: 'leaderboard',
       title: 'Climb the Leaderboard',
-      description: 'Your team total is summed each match. Season leaderboard tracks cumulative points across all matches.',
-      accent: '#3B82F6',
-      bg: 'rgba(59, 130, 246, 0.12)',
+      description: 'Match scores roll into the season table. One bad captain pick can bury you for weeks.',
+      accent: '#7C3AED',
+      bg: 'rgba(124, 58, 237, 0.12)',
     },
     {
-      icon: 'emoji_events',
-      title: 'Win Awards',
-      description: 'Special awards each match: Top Scorer, Best Captain Pick, Perfect XI, and Underdog Win.',
-      accent: '#F59E0B',
-      bg: 'rgba(245, 158, 11, 0.12)',
+      icon: 'menu_book',
+      title: 'Rules Stay Synced',
+      description: 'This page is generated from the backend scoring contract, so the numbers here and the numbers in the engine stay aligned.',
+      accent: '#06B6D4',
+      bg: 'rgba(6, 182, 212, 0.12)',
     },
   ];
 
-  readonly scoringSections: ScoringSection[] = [
-    {
-      title: 'Batting',
-      icon: 'sports_cricket',
-      color: '#3B82F6',
-      rules: [
-        { label: 'Per run scored', points: '+1' },
-        { label: 'Per boundary (4)', points: '+1 bonus' },
-        { label: 'Per six', points: '+2 bonus' },
-        { label: 'Half-century (50 runs)', points: '+8' },
-        { label: 'Century (100 runs)', points: '+16' },
-        { label: 'Duck (0 runs, dismissed)', points: '-2', note: 'Not applicable to pure bowlers (BOWL role)' },
-        { label: 'Strike rate > 170', points: '+6', note: 'Min 10 balls faced' },
-        { label: 'Strike rate 150.01 - 170', points: '+4' },
-        { label: 'Strike rate 130 - 150', points: '+2' },
-        { label: 'Strike rate 60 - 70', points: '-2' },
-        { label: 'Strike rate 50 - 59.99', points: '-4' },
-        { label: 'Strike rate < 50', points: '-6' },
-      ],
-    },
-    {
-      title: 'Bowling',
-      icon: 'sports_baseball',
-      color: '#E8534A',
-      rules: [
-        { label: 'Per wicket', points: '+25' },
-        { label: 'LBW / Bowled bonus (per wicket)', points: '+8' },
-        { label: 'Per maiden over', points: '+12' },
-        { label: '4-wicket haul', points: '+8' },
-        { label: '5-wicket haul', points: '+16' },
-        { label: 'Economy < 5', points: '+6', note: 'Min 2 overs bowled' },
-        { label: 'Economy 5 - 5.99', points: '+4' },
-        { label: 'Economy 6 - 7', points: '+2' },
-        { label: 'Economy 10 - 11', points: '-2' },
-        { label: 'Economy 11.01 - 12', points: '-4' },
-        { label: 'Economy > 12', points: '-6' },
-      ],
-    },
-    {
-      title: 'Fielding',
-      icon: 'sports_handball',
-      color: '#22C55E',
-      rules: [
-        { label: 'Per catch', points: '+8' },
-        { label: '3+ catches in a match', points: '+8 bonus' },
-        { label: 'Per stumping', points: '+12' },
-        { label: 'Direct run-out', points: '+10' },
-        { label: 'Indirect run-out (throw/assist)', points: '+6' },
-      ],
-    },
-  ];
+  ngOnInit() {
+    this.api.getScoringRules().subscribe({
+      next: (rules) => {
+        this.scoringSections.set(rules.sections);
+        this.multipliers.set(rules.multipliers);
+        this.strikeRateMinBalls.set(rules.thresholds.strikeRateMinBalls);
+        this.economyMinOvers.set(rules.thresholds.economyMinOvers);
+        this.loading.set(false);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message ?? 'Failed to load scoring rules');
+        this.loading.set(false);
+      },
+    });
+  }
 
-  toggle(title: string) {
-    this.openSection.set(this.openSection() === title ? null : title);
+  toggle(section: 'batting' | 'bowling' | 'fielding') {
+    this.openSection.set(this.openSection() === section ? null : section);
+  }
+
+  pointColor(points: number): string {
+    if (points > 0) return 'var(--color-accent-hover)';
+    if (points < 0) return 'var(--color-danger)';
+    return 'var(--color-text-subtle)';
   }
 }

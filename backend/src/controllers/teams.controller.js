@@ -1,6 +1,7 @@
 const FantasyTeam = require('../models/FantasyTeam.model');
 const Match = require('../models/Match.model');
 const Player = require('../models/Player.model');
+const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
 const TEAM_SIZE = 11;
 const MAX_FROM_ONE_FRANCHISE = 7;
@@ -121,14 +122,17 @@ const getAllTeams = async (req, res) => {
       return res.status(403).json({ message: 'Teams are hidden until the deadline passes' });
     }
 
-    const teams = await FantasyTeam.find({ matchId: req.params.matchId })
+    const activeMemberIds = await getActiveLeagueMemberIds();
+    if (activeMemberIds.length === 0) return res.json([]);
+
+    const teams = await FantasyTeam.find({ matchId: req.params.matchId, userId: { $in: activeMemberIds } })
       .populate('userId', 'name')
       .populate('players', 'name franchise role imageUrl')
       .populate('captain', 'name')
       .populate('viceCaptain', 'name')
       .sort({ totalPoints: -1 });
 
-    res.json(teams);
+    res.json(teams.filter((team) => team.userId != null));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

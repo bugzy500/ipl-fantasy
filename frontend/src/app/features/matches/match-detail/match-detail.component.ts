@@ -163,7 +163,7 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
             }
           </mat-tab>
 
-          <mat-tab label="Player Scores">
+          <mat-tab label="Scorecards">
             @defer (on viewport) {
               <app-player-scores-tab [matchId]="id()" [matchStatus]="data.match.status" />
             } @placeholder {

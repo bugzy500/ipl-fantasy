@@ -1,5 +1,6 @@
 const Award = require('../models/Award.model');
 const FantasyTeam = require('../models/FantasyTeam.model');
+const { getActiveLeagueMemberIds } = require('./league-members.service');
 
 /**
  * Calculate and store awards after scoring a match.
@@ -10,9 +11,13 @@ const FantasyTeam = require('../models/FantasyTeam.model');
  *  - underdog_win: Lowest average credit team wins the match
  */
 async function calculateAwards(matchId, playerPointsMap, playingXIIds) {
-  const teams = await FantasyTeam.find({ matchId })
+  const activeMemberIds = await getActiveLeagueMemberIds();
+  if (activeMemberIds.length === 0) return [];
+
+  const teams = (await FantasyTeam.find({ matchId, userId: { $in: activeMemberIds } })
     .populate('players', 'credits')
-    .populate('userId', 'name');
+    .populate('userId', 'name'))
+    .filter((team) => team.userId != null);
 
   if (teams.length === 0) return [];
 

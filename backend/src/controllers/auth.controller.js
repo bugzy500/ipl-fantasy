@@ -57,7 +57,7 @@ const joinLeague = async (req, res) => {
   if (!inviteCode) return res.status(400).json({ message: 'Invite code is required' });
 
   try {
-    const league = await League.findOne({ inviteCode: inviteCode.toUpperCase() });
+    const league = await League.findOne({ inviteCode: inviteCode.toUpperCase() }).select('name inviteCode members');
     if (!league) return res.status(404).json({ message: 'Invalid invite code' });
 
     const userId = req.user._id;
@@ -65,10 +65,32 @@ const joinLeague = async (req, res) => {
       return res.status(409).json({ message: 'Already a member of this league' });
     }
 
-    league.members.push(userId);
-    await league.save();
+    const joinResult = await League.updateOne(
+      {
+        _id: league._id,
+        members: { $ne: userId },
+        $expr: { $lt: [{ $size: '$members' }, 14] },
+      },
+      { $addToSet: { members: userId } }
+    );
 
-    res.json({ message: 'Joined league successfully', league: { name: league.name, inviteCode: league.inviteCode } });
+    if (joinResult.modifiedCount === 1) {
+      return res.json({ message: 'Joined league successfully', league: { name: league.name, inviteCode: league.inviteCode } });
+    }
+
+    const refreshedLeague = await League.findById(league._id).select('name inviteCode members');
+    if (refreshedLeague?.members.some((m) => m.equals(userId))) {
+      return res.json({
+        message: 'Joined league successfully',
+        league: { name: refreshedLeague.name, inviteCode: refreshedLeague.inviteCode },
+      });
+    }
+
+    if (refreshedLeague && refreshedLeague.members.length >= 14) {
+      return res.status(403).json({ message: 'League is full (14/14 members)' });
+    }
+
+    res.status(409).json({ message: 'Could not join league' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
