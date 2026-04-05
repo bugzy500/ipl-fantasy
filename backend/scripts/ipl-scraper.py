@@ -43,7 +43,7 @@ APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://ipl-fantasy-live.vercel.a
 PG_DSN = os.environ.get('PG_DSN', 'postgresql://dotsai:6a0NxO3mjlcKrA7iYw7aVDnX7kyN9@127.0.0.1:5432/dotsai')
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 IST = timezone(timedelta(hours=5, minutes=30))
-DM_INTERVAL_MIN = 3
+DM_INTERVAL_MIN = 15
 STATE_FILE = "/opt/services/ipl-scraper/state.json"
 
 # WhatsApp Group — Saanp Premier League
@@ -1803,8 +1803,8 @@ def auto_generate_missing_teams(db, match):
     players_pool = list(db.players.find({"_id": {"$in": all_player_ids}, "isActive": True}))
 
     if len(players_pool) < 11:
-        print(f"    Randomizer: only {len(players_pool)} players in playing XI, need 11. Skipping.")
-        return []
+        print(f"    Randomizer: only {len(players_pool)} players in playing XI, need 11. Will retry.")
+        return None
 
     # Get league members
     league = db.leagues.find_one({"season": "IPL_2026"})
@@ -2117,7 +2117,7 @@ def main():
         # 3a. For matches with playingXI: send squad announcement + auto-generate missing teams
         try:
             live_matches = list(db.matches.find({
-                "status": {"$in": ["live", "toss_done"]},
+                "status": {"$in": ["upcoming", "toss_done", "live"]},
                 "playingXI.team1": {"$exists": True, "$ne": []},
                 "playingXI.team2": {"$exists": True, "$ne": []},
             }))
@@ -2152,7 +2152,9 @@ def main():
                     continue
                 auto_picked = auto_generate_missing_teams(db, lm)
                 if auto_picked is not None:
-                    # Mark as done even if 0 picks (so we don't retry)
+                    # Mark done only if pool was sufficient (list returned, even if empty = everyone submitted)
+                    # An empty list means everyone already had teams — safe to stop.
+                    # None means pool < 11 players — retry next cycle when full XI arrives.
                     state.setdefault("last_dm", {})[rando_key] = True
         except Exception as e:
             print(f"  Randomizer error: {e}")
