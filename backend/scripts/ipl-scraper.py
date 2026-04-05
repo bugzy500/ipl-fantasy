@@ -1115,6 +1115,13 @@ def update_match_scores(db, cb_match_id, scorecard):
             players_by_name[parts[-1]] = p
         if p.get("cricbuzzId"):
             players_by_cbid[p["cricbuzzId"]] = p
+        # Also index by aliases (handles spelling variants like Suryavanshi/Sooryavanshi)
+        for alias in p.get("aliases", []):
+            alias_clean = alias.strip().lower()
+            players_by_name[alias_clean] = p
+            alias_parts = alias_clean.split()
+            if len(alias_parts) > 1:
+                players_by_name[alias_parts[-1]] = p
 
     def find_player(name=None, cb_id=None):
         if cb_id and cb_id in players_by_cbid:
@@ -1422,6 +1429,137 @@ def detect_takeovers(db, match, team_scores, state):
         state["last_dm"][takeover_dedup_key] = list(sent_takeovers)
 
 
+# ─── What-It-Takes: dynamic per-update insights ───
+def compute_what_it_takes(db, match, team_scores):
+    """
+    Find the MOST IMPACTFUL realistic events that can still happen.
+    Changes every update as match state evolves.
+    Returns list of insight strings (max 5).
+    """
+    if not team_scores or len(team_scores) < 2:
+        return []
+
+    match_id = match["_id"]
+    perfs_raw = list(db.playerperformances.find({"matchId": match_id}))
+    perf_by_pid = {str(p["playerId"]): p for p in perfs_raw}
+    players_raw = {str(p["_id"]): p for p in db.players.find({"isActive": True})}
+
+    league = db.leagues.find_one({"season": "IPL_2026"})
+    if not league:
+        return []
+    member_ids = league.get("members", [])
+    teams = list(db.fantasyteams.find({"matchId": match_id, "userId": {"$in": member_ids}}))
+    user_cache = {}
+    for t in teams:
+        u = db.users.find_one({"_id": t["userId"]})
+        if u:
+            user_cache[str(t["userId"])] = u.get("name", "?")
+
+    # Build current rankings from team_scores
+    current_ranks = {}
+    current_pts_map = {}
+    for i, ts in enumerate(team_scores):
+        uid = str(ts.get("userId", ts.get("_id", "")))
+        current_ranks[uid] = i + 1
+        current_pts_map[uid] = ts.get("totalPoints", 0)
+
+    def calc_team_pts(team, override_pid=None, override_perf=None):
+        total = 0
+        for pid_obj in team.get("players", []):
+            pid = str(pid_obj)
+            perf = override_perf if pid == override_pid else perf_by_pid.get(pid)
+            player = players_raw.get(pid)
+            if not perf or not player:
+                continue
+            pts = calculate_fantasy_points(perf, player.get("role", "BAT"))
+            is_cap = str(team.get("captain", "")) == pid
+            is_vc = str(team.get("viceCaptain", "")) == pid
+            total += apply_multiplier(pts, is_cap, is_vc)
+        return round(total, 1)
+
+    # Find ALL active players (still batting or bowling)
+    active_pids = set()
+    for pid, perf in perf_by_pid.items():
+        is_batting = perf.get("didBat") and not perf.get("isDismissed")
+        is_bowling = perf.get("oversBowled", 0) > 0 and perf.get("oversBowled", 0) < 4
+        if is_batting or is_bowling:
+            active_pids.add(pid)
+
+    if not active_pids:
+        return ["  Match nearly done — no active batsmen/bowlers left"]
+
+    # For each active player, simulate ONE realistic event and find all rank swaps
+    all_scenarios = []
+
+    for pid in active_pids:
+        perf = perf_by_pid[pid]
+        player = players_raw.get(pid)
+        if not player:
+            continue
+        name = player.get("name", "?")
+        role = player.get("role", "BAT")
+
+        events = []
+        is_batting = perf.get("didBat") and not perf.get("isDismissed")
+        is_bowling = perf.get("oversBowled", 0) > 0 and perf.get("oversBowled", 0) < 4
+
+        if is_batting:
+            runs = perf.get("runs", 0)
+            bf = perf.get("ballsFaced", 0)
+            sr = (runs / bf * 100) if bf > 0 else 130
+            # Next milestone
+            if runs < 25:
+                events.append((f"{name} reaches 25", {**perf, "runs": 25, "ballsFaced": bf + int((25 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 2}))
+            elif runs < 50:
+                events.append((f"{name} reaches 50", {**perf, "runs": 50, "ballsFaced": bf + int((50 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 3, "sixes": perf.get("sixes", 0) + 1}))
+            elif runs < 100 and role in ("BAT", "WK"):
+                events.append((f"{name} hits century!", {**perf, "runs": 100, "ballsFaced": bf + int((100 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 5, "sixes": perf.get("sixes", 0) + 3}))
+            # Gets out now
+            events.append((f"{name} out at {runs}", {**perf, "isDismissed": True}))
+
+        if is_bowling and role in ("BOWL", "AR"):
+            wk = perf.get("wickets", 0)
+            events.append((f"{name} takes wicket ({wk+1}W)", {**perf, "wickets": wk + 1}))
+
+        # Evaluate each event — find who moves
+        for event_label, new_perf in events:
+            # Recalc ALL teams with this one player change
+            new_scores = []
+            for team in teams:
+                uid = str(team.get("userId", ""))
+                new_pts = calc_team_pts(team, override_pid=pid, override_perf=new_perf)
+                new_scores.append((uid, new_pts))
+            new_scores.sort(key=lambda x: x[1], reverse=True)
+
+            # Find rank changes
+            swaps = []
+            for new_rank_idx, (uid, new_pts) in enumerate(new_scores):
+                old_rank = current_ranks.get(uid, 99)
+                new_rank = new_rank_idx + 1
+                if new_rank != old_rank:
+                    uname = user_cache.get(uid, "?")
+                    swaps.append((uname, old_rank, new_rank))
+
+            if swaps:
+                impact = sum(abs(o - n) for _, o, n in swaps)
+                all_scenarios.append((event_label, swaps, impact))
+
+    # Sort by impact, deduplicate
+    all_scenarios.sort(key=lambda x: x[2], reverse=True)
+    seen_events = set()
+    insights = []
+    for event_label, swaps, impact in all_scenarios:
+        if event_label in seen_events:
+            continue
+        seen_events.add(event_label)
+        swap_strs = ", ".join(f"{n} #{o}→#{r}" for n, o, r in swaps[:3])
+        insights.append(f"  {event_label} → {swap_strs}")
+        if len(insights) >= 5:
+            break
+
+    return insights
+
+
 def send_whatsapp_updates(db, match, team_scores, state):
     """Send live/completion updates to group instead of individual DMs."""
     match_key = str(match["_id"])
@@ -1463,8 +1601,19 @@ def send_whatsapp_updates(db, match, team_scores, state):
             for i, u in enumerate(top)
         )
         msg = (f"\U0001f4ca *Live — {match['team1']} vs {match['team2']}*\n\n"
-               f"*Top 15 right now:*\n{lb_text}\n\n"
-               f"Points updating every 3 min! \U0001f525")
+               f"*Top 15 right now:*\n{lb_text}\n\n")
+
+        # Add "What it takes" insights
+        try:
+            insights = compute_what_it_takes(db, match, all_scores)
+            if insights:
+                msg += "\U0001f52e *What it takes to climb:*\n"
+                msg += "\n".join(insights)
+                msg += "\n\n"
+        except Exception as e:
+            print(f"    What-it-takes error: {e}")
+
+        msg += f"Points updating every 3 min! \U0001f525"
         send_group(msg)
 
     state.setdefault("last_dm", {})[match_key] = now
@@ -1979,7 +2128,15 @@ def main():
                 except Exception as e:
                     print(f"  Squad announcement error: {e}")
 
-                # 3a-ii. Infinity Max smart team builder (runs BEFORE randomizer)
+                # ── Deadline gate: everything below only runs AFTER deadline ──
+                deadline = lm.get("deadline") or (lm["scheduledAt"] + timedelta(minutes=30))
+                dl_utc = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                if now_utc < dl_utc:
+                    print(f"  Deadline not passed yet — skipping Infinity Max + randomizer")
+                    continue
+
+                # 3a-ii. Infinity Max smart team builder (runs AFTER deadline)
                 try:
                     im_result = auto_build_and_submit(db, lm, state)
                     if im_result:
