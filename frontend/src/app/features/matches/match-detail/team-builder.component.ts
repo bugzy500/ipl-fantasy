@@ -159,6 +159,26 @@ const TEAM_SIZE = 11;
           }
         </mat-button-toggle-group>
 
+        <!-- Franchise filter -->
+        <div class="flex flex-wrap gap-2 mt-3">
+          <button class="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                  [style.background]="activeFranchiseFilter() === 'ALL' ? 'var(--color-accent)' : 'var(--color-surface)'"
+                  [style.color]="activeFranchiseFilter() === 'ALL' ? 'white' : 'var(--color-text-muted)'"
+                  [style.border]="activeFranchiseFilter() === 'ALL' ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'"
+                  (click)="activeFranchiseFilter.set('ALL')">
+            All Teams
+          </button>
+          @for (team of franchises(); track team) {
+            <button class="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                    [style.background]="activeFranchiseFilter() === team ? 'var(--color-accent)' : 'var(--color-surface)'"
+                    [style.color]="activeFranchiseFilter() === team ? 'white' : 'var(--color-text-muted)'"
+                    [style.border]="activeFranchiseFilter() === team ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'"
+                    (click)="activeFranchiseFilter.set(team)">
+              {{ team }}
+            </button>
+          }
+        </div>
+
         <!-- Player list -->
         <div class="space-y-2">
           @for (player of filteredPlayers(); track player._id) {
@@ -285,6 +305,12 @@ export class TeamBuilderComponent implements OnInit {
   readonly roleKeys: PlayerRole[] = ['WK', 'BAT', 'AR', 'BOWL'];
 
   readonly activeRoleFilter = signal<PlayerRole | 'ALL'>('ALL');
+  readonly activeFranchiseFilter = signal<string>('ALL');
+
+  readonly franchises = computed(() => {
+    const teams = [...new Set(this.players().map(p => p.franchise))];
+    return teams.sort();
+  });
   readonly selectedPlayers = signal<string[]>([]);
   readonly captain = signal<string | null>(null);
   readonly viceCaptain = signal<string | null>(null);
@@ -297,8 +323,11 @@ export class TeamBuilderComponent implements OnInit {
   readonly isDeadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
 
   readonly filteredPlayers = computed(() => {
-    const filter = this.activeRoleFilter();
-    const list = filter === 'ALL' ? this.players() : this.players().filter((p) => p.role === filter);
+    const roleFilter = this.activeRoleFilter();
+    const franchiseFilter = this.activeFranchiseFilter();
+    let list = this.players();
+    if (roleFilter !== 'ALL') list = list.filter((p) => p.role === roleFilter);
+    if (franchiseFilter !== 'ALL') list = list.filter((p) => p.franchise === franchiseFilter);
     return [...list].sort((a, b) => b.credits - a.credits);
   });
 
