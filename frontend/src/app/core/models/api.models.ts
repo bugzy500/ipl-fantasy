@@ -75,6 +75,7 @@ export interface PlayerPerformance {
   wickets: number;
   maidens: number;
   lbwBowledWickets: number;
+  dotBalls: number;
   catches: number;
   stumpings: number;
   runOutDirect: number;
@@ -110,7 +111,7 @@ export interface ScoringRule {
 }
 
 export interface ScoringRuleSection {
-  key: 'batting' | 'bowling' | 'fielding';
+  key: 'batting' | 'bowling' | 'fielding' | 'predictions';
   title: string;
   icon: string;
   color: string;

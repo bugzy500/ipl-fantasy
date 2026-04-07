@@ -55,6 +55,7 @@ const RULES_RESPONSE = Object.freeze({
       rules: [
         { label: 'Per wicket', points: 25, displayPoints: '+25', note: 'Run-outs do not count as wickets.' },
         { label: 'LBW / Bowled bonus (per wicket)', points: 8, displayPoints: '+8' },
+        { label: 'Per dot ball bowled', points: 2, displayPoints: '+2' },
         { label: 'Per maiden over', points: 12, displayPoints: '+12' },
         { label: '4-wicket haul', points: 8, displayPoints: '+8' },
         { label: '5-wicket haul', points: 16, displayPoints: '+16' },
@@ -77,6 +78,17 @@ const RULES_RESPONSE = Object.freeze({
         { label: 'Per stumping', points: 12, displayPoints: '+12' },
         { label: 'Direct run-out', points: 12, displayPoints: '+12' },
         { label: 'Indirect run-out (throw or catch)', points: 6, displayPoints: '+6' },
+      ],
+    },
+    {
+      key: 'predictions',
+      title: 'Match Predictions',
+      icon: 'psychology',
+      color: '#F59E0B',
+      rules: [
+        { label: 'Correct winner prediction', points: 25, displayPoints: '+25', note: 'Predict the winning team before the match starts.' },
+        { label: 'Correct super over prediction', points: 80, displayPoints: '+80', note: 'Predict the match goes to a super over. Higher risk, higher reward.' },
+        { label: 'Wrong or no prediction', points: 0, displayPoints: '0', note: 'No penalty for wrong predictions.' },
       ],
     },
   ],
@@ -128,7 +140,7 @@ function buildFantasyPointsBreakdown(perf, role) {
     runs = 0, ballsFaced = 0, fours = 0, sixes = 0,
     isDismissed = false, didBat = false,
     oversBowled = 0, runsConceded = 0, wickets = 0,
-    maidens = 0, lbwBowledWickets = 0,
+    maidens = 0, lbwBowledWickets = 0, dotBalls = 0,
     catches = 0, stumpings = 0, runOutDirect = 0, runOutIndirect = 0,
   } = perf;
 
@@ -176,6 +188,9 @@ function buildFantasyPointsBreakdown(perf, role) {
     }
     if (lbwBowledWickets > 0) {
       bowlingItems.push(makeItem('LBW / bowled bonus', `${lbwBowledWickets} wicket${lbwBowledWickets === 1 ? '' : 's'} x 8`, lbwBowledWickets * 8));
+    }
+    if (dotBalls > 0) {
+      bowlingItems.push(makeItem('Dot balls', `${dotBalls} dot ball${dotBalls === 1 ? '' : 's'} x 2`, dotBalls * 2));
     }
     if (maidens > 0) {
       bowlingItems.push(makeItem('Maiden overs', `${maidens} maiden${maidens === 1 ? '' : 's'} x 12`, maidens * 12));

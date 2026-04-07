@@ -99,6 +99,11 @@ import { firstValueFrom } from 'rxjs';
                     <input matInput type="number" formControlName="lbwBowledWickets" min="0" />
                     <mat-hint>Wickets that were LBW or Bowled (bonus +8 each)</mat-hint>
                   </mat-form-field>
+                  <mat-form-field appearance="outline" class="col-span-2">
+                    <mat-label>Dot Balls</mat-label>
+                    <input matInput type="number" formControlName="dotBalls" min="0" />
+                    <mat-hint>Balls bowled where no runs scored (+2 pts each)</mat-hint>
+                  </mat-form-field>
 
                   <!-- Fielding -->
                   <div class="col-span-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-2">Fielding</div>
@@ -176,7 +181,7 @@ export class AdminScoresComponent {
       runs: [0], ballsFaced: [0], fours: [0], sixes: [0],
       didBat: [false], isDismissed: [false],
       oversBowled: [0], runsConceded: [0], wickets: [0],
-      maidens: [0], lbwBowledWickets: [0],
+      maidens: [0], lbwBowledWickets: [0], dotBalls: [0],
       catches: [0], stumpings: [0], runOutDirect: [0], runOutIndirect: [0],
     });
   }

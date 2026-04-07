@@ -260,7 +260,7 @@ import { ScoringMultiplier, ScoringRuleSection } from '../../core/models/api.mod
 export class RulesComponent implements OnInit {
   private readonly api = inject(ApiService);
 
-  readonly openSection = signal<'batting' | 'bowling' | 'fielding' | null>('batting');
+  readonly openSection = signal<'batting' | 'bowling' | 'fielding' | 'predictions' | null>('batting');
   readonly scoringSections = signal<ScoringRuleSection[]>([]);
   readonly multipliers = signal<ScoringMultiplier[]>([]);
   readonly strikeRateMinBalls = signal(10);
@@ -329,7 +329,7 @@ export class RulesComponent implements OnInit {
     });
   }
 
-  toggle(section: 'batting' | 'bowling' | 'fielding') {
+  toggle(section: 'batting' | 'bowling' | 'fielding' | 'predictions') {
     this.openSection.set(this.openSection() === section ? null : section);
   }
 
