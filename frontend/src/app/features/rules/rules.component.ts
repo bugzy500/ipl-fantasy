@@ -1,13 +1,11 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { ApiService } from '../../core/services/api.service';
 import { ScoringMultiplier, ScoringRuleSection } from '../../core/models/api.models';
 
 @Component({
   selector: 'app-rules',
   standalone: true,
-  imports: [MatIconModule, MatProgressSpinnerModule],
+  imports: [MatIconModule],
   template: `
     <div class="space-y-8 fade-up">
       <div class="space-y-3">
@@ -48,17 +46,7 @@ import { ScoringMultiplier, ScoringRuleSection } from '../../core/models/api.mod
         }
       </div>
 
-      @if (loading()) {
-        <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
-      }
-
-      @if (error()) {
-        <div class="card-surface rounded-xl p-5" style="border: 1px solid var(--color-danger);">
-          <p class="text-sm" style="color: var(--color-danger);">{{ error() }}</p>
-        </div>
-      }
-
-      @if (!loading() && !error()) {
+      @if (true) {
         <div class="card-surface rounded-xl p-5 space-y-3" style="border: 1px solid var(--color-border);">
           <h2 class="text-display font-semibold text-sm" style="color: var(--color-text);">
             Thresholds That Matter
@@ -257,16 +245,70 @@ import { ScoringMultiplier, ScoringRuleSection } from '../../core/models/api.mod
     }
   `],
 })
-export class RulesComponent implements OnInit {
-  private readonly api = inject(ApiService);
-
+export class RulesComponent {
   readonly openSection = signal<'batting' | 'bowling' | 'fielding' | 'predictions' | null>('batting');
-  readonly scoringSections = signal<ScoringRuleSection[]>([]);
-  readonly multipliers = signal<ScoringMultiplier[]>([]);
   readonly strikeRateMinBalls = signal(10);
   readonly economyMinOvers = signal(2);
-  readonly loading = signal(true);
-  readonly error = signal('');
+
+  readonly scoringSections = signal<ScoringRuleSection[]>([
+    {
+      key: 'batting', title: 'Batting', icon: 'sports_cricket', color: '#3B82F6',
+      rules: [
+        { label: 'Per run scored', points: 1, displayPoints: '+1' },
+        { label: 'Per boundary (4)', points: 1, displayPoints: '+1 bonus' },
+        { label: 'Per six', points: 2, displayPoints: '+2 bonus' },
+        { label: 'Half-century (50 runs)', points: 8, displayPoints: '+8' },
+        { label: 'Century (100 runs)', points: 16, displayPoints: '+16' },
+        { label: 'Duck penalty', points: -2, displayPoints: '-2', note: 'Applies only to BAT, WK, and AR who are dismissed for 0.' },
+        { label: 'Strike rate above 170', points: 6, displayPoints: '+6', note: 'Min 10 balls faced' },
+        { label: 'Strike rate 150.01 – 170', points: 4, displayPoints: '+4' },
+        { label: 'Strike rate 130 – 150', points: 2, displayPoints: '+2' },
+        { label: 'Strike rate 60 – 70', points: -2, displayPoints: '-2' },
+        { label: 'Strike rate 50 – 59.99', points: -4, displayPoints: '-4' },
+        { label: 'Strike rate below 50', points: -6, displayPoints: '-6' },
+      ],
+    },
+    {
+      key: 'bowling', title: 'Bowling', icon: 'sports_baseball', color: '#E8534A',
+      rules: [
+        { label: 'Per wicket', points: 25, displayPoints: '+25', note: 'Run-outs do not count as wickets.' },
+        { label: 'LBW / Bowled bonus (per wicket)', points: 8, displayPoints: '+8' },
+        { label: 'Per dot ball bowled', points: 2, displayPoints: '+2' },
+        { label: 'Per maiden over', points: 12, displayPoints: '+12' },
+        { label: '4-wicket haul', points: 8, displayPoints: '+8' },
+        { label: '5-wicket haul', points: 16, displayPoints: '+16' },
+        { label: 'Economy below 5', points: 6, displayPoints: '+6', note: 'Min 2 overs bowled' },
+        { label: 'Economy 5 – 5.99', points: 4, displayPoints: '+4' },
+        { label: 'Economy 6 – 7', points: 2, displayPoints: '+2' },
+        { label: 'Economy 10 – 11', points: -2, displayPoints: '-2' },
+        { label: 'Economy 11.01 – 12', points: -4, displayPoints: '-4' },
+        { label: 'Economy above 12', points: -6, displayPoints: '-6' },
+      ],
+    },
+    {
+      key: 'fielding', title: 'Fielding', icon: 'sports_handball', color: '#22C55E',
+      rules: [
+        { label: 'Per catch', points: 8, displayPoints: '+8' },
+        { label: '3+ catches in a match', points: 4, displayPoints: '+4 bonus' },
+        { label: 'Per stumping', points: 12, displayPoints: '+12' },
+        { label: 'Direct run-out', points: 12, displayPoints: '+12' },
+        { label: 'Indirect run-out (throw or catch)', points: 6, displayPoints: '+6' },
+      ],
+    },
+    {
+      key: 'predictions', title: 'Match Predictions', icon: 'psychology', color: '#F59E0B',
+      rules: [
+        { label: 'Correct winner prediction', points: 25, displayPoints: '+25', note: 'Predict the winning team before the match starts.' },
+        { label: 'Correct super over prediction', points: 80, displayPoints: '+80', note: 'Predict the match goes to a super over. Higher risk, higher reward.' },
+        { label: 'Wrong or no prediction', points: 0, displayPoints: '0', note: 'No penalty for wrong predictions.' },
+      ],
+    },
+  ]);
+
+  readonly multipliers = signal<ScoringMultiplier[]>([
+    { key: 'captain', label: 'Captain', multiplier: 2, displayMultiplier: '2x', note: 'Captain scores double fantasy points.' },
+    { key: 'viceCaptain', label: 'Vice-Captain', multiplier: 1.5, displayMultiplier: '1.5x', note: 'Vice-Captain scores 1.5x fantasy points.' },
+  ]);
 
   readonly quickRules = [
     {
@@ -312,22 +354,6 @@ export class RulesComponent implements OnInit {
       bg: 'rgba(6, 182, 212, 0.12)',
     },
   ];
-
-  ngOnInit() {
-    this.api.getScoringRules().subscribe({
-      next: (rules) => {
-        this.scoringSections.set(rules.sections);
-        this.multipliers.set(rules.multipliers);
-        this.strikeRateMinBalls.set(rules.thresholds.strikeRateMinBalls);
-        this.economyMinOvers.set(rules.thresholds.economyMinOvers);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err.error?.message ?? 'Failed to load scoring rules');
-        this.loading.set(false);
-      },
-    });
-  }
 
   toggle(section: 'batting' | 'bowling' | 'fielding' | 'predictions') {
     this.openSection.set(this.openSection() === section ? null : section);
