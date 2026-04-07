@@ -19,6 +19,7 @@ const playerPerformanceSchema = new mongoose.Schema(
     wickets: { type: Number, default: 0 },
     maidens: { type: Number, default: 0 },
     lbwBowledWickets: { type: Number, default: 0 }, // wickets that were LBW or Bowled (for bonus)
+    dotBalls: { type: Number, default: 0 }, // dot balls bowled (+2 pts each)
 
     // Fielding
     catches: { type: Number, default: 0 },
