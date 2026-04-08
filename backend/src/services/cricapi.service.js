@@ -288,7 +288,7 @@ function mapScorecardToPerformances(scorecardData) {
         runs: 0, ballsFaced: 0, fours: 0, sixes: 0,
         didBat: false, isDismissed: false,
         oversBowled: 0, runsConceded: 0, wickets: 0, maidens: 0,
-        lbwBowledWickets: 0,
+        lbwBowledWickets: 0, dotBalls: 0,
         catches: 0, stumpings: 0, runOutDirect: 0, runOutIndirect: 0,
       };
     }
@@ -338,6 +338,7 @@ function mapScorecardToPerformances(scorecardData) {
         p.runsConceded = (b.r ?? b.runs ?? 0);
         p.wickets = (b.w ?? b.wickets ?? 0);
         p.maidens = (b.m ?? b.maidens ?? 0);
+        p.dotBalls = (b.d ?? b.dots ?? b.dotBalls ?? 0);
 
         // Extract player image
         const img = b.bowler?.img || b.img;
