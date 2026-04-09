@@ -74,7 +74,7 @@ import { firstValueFrom } from 'rxjs';
         <!-- Match Leaderboard -->
         <mat-tab label="Match">
           <div class="mt-6 space-y-4">
-            <mat-select [(ngModel)]="selectedMatchId" placeholder="Select a completed match">
+            <mat-select [value]="selectedMatchId()" (selectionChange)="selectedMatchId.set($event.value)" placeholder="Select a completed match">
               @for (match of completedMatches.value() ?? []; track match._id) {
                 <mat-option [value]="match._id">
                   {{ match.team1 }} vs {{ match.team2 }} - {{ formatDate(match.scheduledAt) }}
@@ -215,7 +215,7 @@ import { firstValueFrom } from 'rxjs';
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Hisaab Kitaab</h3>
                 <div class="text-right">
-                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 5 win</span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 6 win</span>
                   @if ((seasonInsights.value()?.awardPool ?? 0) > 0) {
                     <div class="text-xs font-medium" style="color: var(--color-warning);">
                       Award Pool: ₹{{ seasonInsights.value()?.awardPool }}
@@ -224,34 +224,63 @@ import { firstValueFrom } from 'rxjs';
                 </div>
               </div>
               @for (entry of seasonInsights.value()?.money ?? []; track entry.userId; let i = $index) {
-                <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+                <div class="rounded-xl stagger-item fade-up overflow-hidden"
                      [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                      style="border: 1px solid var(--color-border);">
-                  <span class="w-8 text-center text-display font-bold"
-                        [style.color]="rankColor(i)">
-                    {{ i + 1 }}
-                  </span>
-                  <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
-                    account_balance_wallet
-                  </mat-icon>
-                  <div class="flex-1">
-                    <div class="font-medium text-sm" style="color: var(--color-text);">
-                      {{ entry.userName }}
-                      @if (entry.userId === auth.currentUser()?.id) {
-                        <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
+                  <div class="flex items-center gap-3 p-4 cursor-pointer" (click)="toggleMoneyExpand(entry.userId)">
+                    <span class="w-8 text-center text-display font-bold"
+                          [style.color]="rankColor(i)">
+                      {{ i + 1 }}
+                    </span>
+                    <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                      account_balance_wallet
+                    </mat-icon>
+                    <div class="flex-1">
+                      <div class="font-medium text-sm" style="color: var(--color-text);">
+                        {{ entry.userName }}
+                        @if (entry.userId === auth.currentUser()?.id) {
+                          <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
+                        }
+                      </div>
+                      <div class="text-xs" style="color: var(--color-text-muted);">
+                        Invested: {{ entry.invested }} · Won: {{ entry.won }}
+                      </div>
+                    </div>
+                    <div class="text-right flex items-center gap-2">
+                      <div>
+                        <div class="text-display font-bold text-lg"
+                             [style.color]="entry.net > 0 ? 'var(--color-success)' : entry.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                          {{ entry.net > 0 ? '+' : '' }}{{ entry.net }}
+                        </div>
+                        <div class="text-xs" style="color: var(--color-text-muted);">net</div>
+                      </div>
+                      <mat-icon style="color: var(--color-text-subtle); font-size: 18px; width: 18px; height: 18px; transition: transform 200ms ease-out;"
+                                [style.transform]="expandedMoneyUser() === entry.userId ? 'rotate(180deg)' : 'rotate(0)'">
+                        expand_more
+                      </mat-icon>
+                    </div>
+                  </div>
+                  @if (expandedMoneyUser() === entry.userId && entry.matches?.length) {
+                    <div class="px-4 pb-3 space-y-1" style="border-top: 1px solid var(--color-border);">
+                      <div class="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 py-1.5 text-xs font-medium" style="color: var(--color-text-subtle);">
+                        <span>Match</span>
+                        <span class="text-center w-8">#</span>
+                        <span class="text-right w-12">Won</span>
+                        <span class="text-right w-12">Net</span>
+                      </div>
+                      @for (m of entry.matches; track m.matchLabel) {
+                        <div class="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 py-1.5 text-xs" style="border-top: 1px solid var(--color-border-subtle, rgba(255,255,255,0.05));">
+                          <span style="color: var(--color-text-muted);">{{ m.matchLabel }}</span>
+                          <span class="text-center w-8 font-medium" [style.color]="m.rank <= 3 ? rankColor(m.rank - 1) : 'var(--color-text-muted)'">{{ m.rank }}</span>
+                          <span class="text-right w-12" style="color: var(--color-text);">₹{{ m.won }}</span>
+                          <span class="text-right w-12 font-medium"
+                                [style.color]="m.net > 0 ? 'var(--color-success)' : m.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                            {{ m.net > 0 ? '+' : '' }}{{ m.net }}
+                          </span>
+                        </div>
                       }
                     </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">
-                      Invested: {{ entry.invested }} · Won: {{ entry.won }}
-                    </div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-display font-bold text-lg"
-                         [style.color]="entry.net > 0 ? 'var(--color-success)' : entry.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
-                      {{ entry.net > 0 ? '+' : '' }}{{ entry.net }}
-                    </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">net</div>
-                  </div>
+                  }
                 </div>
               }
               @if ((seasonInsights.value()?.money?.length ?? 0) === 0 && !seasonInsights.isLoading()) {
@@ -274,6 +303,11 @@ export class LeaderboardComponent {
   private readonly api = inject(ApiService);
 
   readonly selectedMatchId = signal<string>('');
+  readonly expandedMoneyUser = signal<string>('');
+
+  toggleMoneyExpand(userId: string): void {
+    this.expandedMoneyUser.set(this.expandedMoneyUser() === userId ? '' : userId);
+  }
 
   readonly seasonLeaderboard = resource({
     loader: () => firstValueFrom(this.api.getSeasonLeaderboard()),

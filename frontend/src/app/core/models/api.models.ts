@@ -181,12 +181,22 @@ export interface SeasonInsight {
   label: string;
 }
 
+export interface MoneyMatchDetail {
+  matchLabel: string;
+  matchDate: string;
+  rank: number;
+  points: number;
+  won: number;
+  net: number;
+}
+
 export interface MoneyEntry {
   userId: string;
   userName: string;
   invested: number;
   won: number;
   net: number;
+  matches?: MoneyMatchDetail[];
 }
 
 export interface SeasonInsightsResponse {

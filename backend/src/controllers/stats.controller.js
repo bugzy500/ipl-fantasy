@@ -120,11 +120,26 @@ const getSeasonInsights = async (req, res) => {
         i = j;
       }
 
+      // Find match info for labels
+      const matchDoc = await Match.findById(matchId).select('team1 team2 scheduledAt').lean();
+      const matchLabel = matchDoc ? `${matchDoc.team1} vs ${matchDoc.team2}` : 'Unknown';
+      const matchDate = matchDoc ? matchDoc.scheduledAt : null;
+
       for (const t of matchTeams) {
         const uid = String(t.userId._id);
-        if (!moneyByUser[uid]) moneyByUser[uid] = { name: t.userId.name, invested: 0, won: 0 };
+        if (!moneyByUser[uid]) moneyByUser[uid] = { name: t.userId.name, invested: 0, won: 0, matches: [] };
+        const won = prizeByUid[uid] || 0;
+        const rank = ranked.findIndex(r => String(r.userId._id) === uid) + 1;
         moneyByUser[uid].invested += ENTRY_FEE;
-        moneyByUser[uid].won += prizeByUid[uid] || 0;
+        moneyByUser[uid].won += won;
+        moneyByUser[uid].matches.push({
+          matchLabel,
+          matchDate,
+          rank,
+          points: t.totalPoints,
+          won: Math.round(won),
+          net: Math.round(won - ENTRY_FEE),
+        });
       }
     }
 
@@ -135,6 +150,7 @@ const getSeasonInsights = async (req, res) => {
         invested: d.invested,
         won: Math.round(d.won),
         net: Math.round(d.won - d.invested),
+        matches: d.matches.sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate)),
       }))
       .sort((a, b) => b.net - a.net);
 
