@@ -299,8 +299,8 @@ export class LeaderboardComponent {
   });
 
   readonly matchLeaderboard = resource({
-    loader: (): Promise<LeaderboardEntry[]> => {
-      const id = this.selectedMatchId();
+    params: () => this.selectedMatchId(),
+    loader: ({ params: id }): Promise<LeaderboardEntry[]> => {
       return id ? firstValueFrom(this.api.getMatchLeaderboard(id)) : Promise.resolve([]);
     },
   });
