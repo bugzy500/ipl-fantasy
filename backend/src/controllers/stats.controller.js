@@ -8,8 +8,10 @@ const { getActiveLeagueMemberIds } = require('../services/league-members.service
 // Returns leaderboard variations: best captain, most consistent, biggest gainer, best predictor
 const getSeasonInsights = async (req, res) => {
   try {
-    const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 result');
+    const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 result scheduledAt');
     const matchIds = completedMatches.map(m => m._id);
+    const matchLookup = {};
+    for (const m of completedMatches) { matchLookup[String(m._id)] = m; }
     const activeMemberIds = await getActiveLeagueMemberIds();
 
     if (matchIds.length === 0 || activeMemberIds.length === 0) return res.json({ insights: [], money: [] });
@@ -121,7 +123,7 @@ const getSeasonInsights = async (req, res) => {
       }
 
       // Find match info for labels
-      const matchDoc = await Match.findById(matchId).select('team1 team2 scheduledAt').lean();
+      const matchDoc = matchLookup[String(matchId)];
       const matchLabel = matchDoc ? `${matchDoc.team1} vs ${matchDoc.team2}` : 'Unknown';
       const matchDate = matchDoc ? matchDoc.scheduledAt : null;
 
