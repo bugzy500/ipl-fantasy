@@ -419,22 +419,22 @@ export class LeaderboardComponent {
   }
 
   seasonAwardBg(type: string): string {
-    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
-    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
-    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
-    if (warm.includes(type)) return 'rgba(245, 158, 11, 0.15)';
-    if (cool.includes(type)) return 'rgba(124, 58, 237, 0.15)';
-    if (fun.includes(type)) return 'rgba(239, 68, 68, 0.1)';
+    const gold = ['max_single_match', 'top3_finishes', 'highest_total', 'best_captain', 'best_vc', 'best_predictor'];
+    const purple = ['the_batsman', 'the_bowler', 'the_allrounder', 'position_lover', 'jack_of_all'];
+    const red = ['lowest_total', 'worst_captain', 'worst_vc', 'pity_award', 'worst_predictor', 'lowest_top7', 'lowest_bowling', 'lowest_batting', 'lowest_allrounder'];
+    if (gold.includes(type)) return 'rgba(245, 158, 11, 0.15)';
+    if (purple.includes(type)) return 'rgba(124, 58, 237, 0.15)';
+    if (red.includes(type)) return 'rgba(239, 68, 68, 0.1)';
     return 'var(--color-surface-elevated)';
   }
 
   seasonAwardColor(type: string): string {
-    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
-    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
-    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
-    if (warm.includes(type)) return '#F59E0B';
-    if (cool.includes(type)) return '#7C3AED';
-    if (fun.includes(type)) return '#EF4444';
+    const gold = ['max_single_match', 'top3_finishes', 'highest_total', 'best_captain', 'best_vc', 'best_predictor'];
+    const purple = ['the_batsman', 'the_bowler', 'the_allrounder', 'position_lover', 'jack_of_all'];
+    const red = ['lowest_total', 'worst_captain', 'worst_vc', 'pity_award', 'worst_predictor', 'lowest_top7', 'lowest_bowling', 'lowest_batting', 'lowest_allrounder'];
+    if (gold.includes(type)) return '#F59E0B';
+    if (purple.includes(type)) return '#7C3AED';
+    if (red.includes(type)) return '#EF4444';
     return 'var(--color-text-muted)';
   }
 }

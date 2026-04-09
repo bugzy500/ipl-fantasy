@@ -20,3 +20,6 @@ Thumbs.db
 
 # Temporary files
 replacements.txt
+
+# Sensitive deployment docs
+DEPLOYMENT.md

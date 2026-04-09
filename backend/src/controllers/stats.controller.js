@@ -237,9 +237,9 @@ const getSeasonAwards = async (req, res) => {
           const pPerf = perfMap[`${mid}_${player._id}`];
           const pts = pPerf ? pPerf.fantasyPoints : 0;
           const role = player.role;
-          if (role === 'BAT') batPts += pts;
+          if (role === 'BAT' || role === 'WK') batPts += pts;
           else if (role === 'BOWL') bowlPts += pts;
-          else if (role === 'AR' || role === 'WK') arPts += pts;
+          else if (role === 'AR') arPts += pts;
         }
 
         // Rank (handle ties: same totalPoints = same rank)
@@ -268,7 +268,7 @@ const getSeasonAwards = async (req, res) => {
     const awards = [];
     const users = Object.entries(userMatchData);
 
-    // 1. Max Score in a Single Match
+    // 1. Max Score (Single Match)
     let bestSingle = { name: '', pts: 0 };
     for (const [, u] of users) {
       for (const m of u.matches) {
@@ -277,35 +277,49 @@ const getSeasonAwards = async (req, res) => {
     }
     awards.push({ type: 'max_single_match', icon: 'bolt', title: 'Max Score (Single Match)', winner: bestSingle.name, value: `${bestSingle.pts} pts` });
 
-    // 2. Highest Score All Time (Sum)
+    // 2. Highest Top 3 Finishes
+    const top3Counts = users.map(([, u]) => ({
+      name: u.name, count: u.matches.filter(m => m.rank <= 3).length,
+    })).sort((a, b) => b.count - a.count);
+    if (top3Counts[0] && top3Counts[0].count > 0) awards.push({ type: 'top3_finishes', icon: 'emoji_events', title: 'Highest Top 3 Finishes', winner: top3Counts[0].name, value: `${top3Counts[0].count} podium finishes` });
+
+    // 3. Highest Total Score
     const totalByUser = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.totalPoints, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
     if (totalByUser[0]) awards.push({ type: 'highest_total', icon: 'trending_up', title: 'Highest Total Score', winner: totalByUser[0].name, value: `${totalByUser[0].total} pts` });
 
-    // 3. Lowest Score All Time (Sum)
+    // 4. Lowest Total Score
     const lowestTotal = [...totalByUser].sort((a, b) => a.total - b.total);
     if (lowestTotal[0]) awards.push({ type: 'lowest_total', icon: 'trending_down', title: 'Lowest Total Score', winner: lowestTotal[0].name, value: `${lowestTotal[0].total} pts` });
 
-    // 4. Highest Captain Score (Sum)
+    // 5. Best Captain Picker
     const capTotals = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.capPts, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
-    if (capTotals[0]) awards.push({ type: 'best_captain_total', icon: 'stars', title: 'Best Captain Picker', winner: capTotals[0].name, value: `${capTotals[0].total} captain pts` });
+    if (capTotals[0]) awards.push({ type: 'best_captain', icon: 'stars', title: 'Best Captain Picker', winner: capTotals[0].name, value: `${capTotals[0].total} captain pts` });
 
-    // 5. Highest Vice-Captain Score (Sum)
+    // 6. Worst Captain Picker
+    const worstCap = [...capTotals].sort((a, b) => a.total - b.total);
+    if (worstCap[0]) awards.push({ type: 'worst_captain', icon: 'star_border', title: 'Worst Captain Picker', winner: worstCap[0].name, value: `${worstCap[0].total} captain pts` });
+
+    // 7. Best Vice Captain Picker
     const vcTotals = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.vcPts, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
-    if (vcTotals[0]) awards.push({ type: 'best_vc_total', icon: 'star_half', title: 'Best Vice-Captain Picker', winner: vcTotals[0].name, value: `${vcTotals[0].total} VC pts` });
+    if (vcTotals[0]) awards.push({ type: 'best_vc', icon: 'star_half', title: 'Best Vice Captain Picker', winner: vcTotals[0].name, value: `${vcTotals[0].total} VC pts` });
 
-    // 6. Pity Award (Maximum 7th position finishes)
-    const seventhCounts = users.map(([, u]) => ({
-      name: u.name, count: u.matches.filter(m => m.rank === 7).length,
+    // 8. Worst Vice Captain Picker
+    const worstVc = [...vcTotals].sort((a, b) => a.total - b.total);
+    if (worstVc[0]) awards.push({ type: 'worst_vc', icon: 'star_outline', title: 'Worst Vice Captain Picker', winner: worstVc[0].name, value: `${worstVc[0].total} VC pts` });
+
+    // 9. Pity Award (Most 8th Place Finishes)
+    const eighthCounts = users.map(([, u]) => ({
+      name: u.name, count: u.matches.filter(m => m.rank === 8).length,
     })).sort((a, b) => b.count - a.count);
-    if (seventhCounts[0] && seventhCounts[0].count > 0) awards.push({ type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award (Most 7th Places)', winner: seventhCounts[0].name, value: `${seventhCounts[0].count} times 7th` });
+    if (eighthCounts[0] && eighthCounts[0].count > 0) awards.push({ type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award (Most 8th Places)', winner: eighthCounts[0].name, value: `${eighthCounts[0].count} times 8th` });
 
-    // 7. Position Lover (Maximum times at same position)
+    // 10. Position Lover (Max times at same position)
     let posLover = { name: '', pos: 0, count: 0 };
     for (const [, u] of users) {
       const posCounts = {};
@@ -318,43 +332,65 @@ const getSeasonAwards = async (req, res) => {
     }
     if (posLover.count > 0) awards.push({ type: 'position_lover', icon: 'repeat', title: 'Position Lover', winner: posLover.name, value: `${posLover.count}× at #${posLover.pos}` });
 
-    // 8. Jack of All (Max number of distinct positions held)
+    // 11. Jack of All Trades (Most distinct positions)
     const jackOfAll = users.map(([, u]) => ({
       name: u.name, positions: new Set(u.matches.map(m => m.rank)).size,
     })).sort((a, b) => b.positions - a.positions);
     if (jackOfAll[0]) awards.push({ type: 'jack_of_all', icon: 'shuffle', title: 'Jack of All Trades', winner: jackOfAll[0].name, value: `${jackOfAll[0].positions} different positions` });
 
-    // 9. The Batsman (Highest points from BAT role)
+    // 12. The Batsman (Highest BAT + WK points)
     const batTotals = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.batPts, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
-    if (batTotals[0]) awards.push({ type: 'the_batsman', icon: 'sports_cricket', title: 'The Batsman', winner: batTotals[0].name, value: `${batTotals[0].total} pts from batters` });
+    if (batTotals[0]) awards.push({ type: 'the_batsman', icon: 'sports_cricket', title: 'The Batsman', winner: batTotals[0].name, value: `${batTotals[0].total} pts from BAT/WK` });
 
-    // 10. The Bowler (Highest points from BOWL role)
+    // 13. The Bowler (Highest BOWL points)
     const bowlTotals = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.bowlPts, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
     if (bowlTotals[0]) awards.push({ type: 'the_bowler', icon: 'sports_baseball', title: 'The Bowler', winner: bowlTotals[0].name, value: `${bowlTotals[0].total} pts from bowlers` });
 
-    // 11. All-Rounder (Highest points from AR + WK)
+    // 14. The All-Rounder (Highest AR points only)
     const arTotals = users.map(([, u]) => ({
       name: u.name, total: Math.round(u.matches.reduce((s, m) => s + m.arPts, 0) * 10) / 10,
     })).sort((a, b) => b.total - a.total);
-    if (arTotals[0]) awards.push({ type: 'all_rounder', icon: 'psychology', title: 'All-Rounder Guru', winner: arTotals[0].name, value: `${arTotals[0].total} pts from AR/WK` });
+    if (arTotals[0]) awards.push({ type: 'the_allrounder', icon: 'psychology', title: 'The All-Rounder', winner: arTotals[0].name, value: `${arTotals[0].total} pts from all-rounders` });
 
-    // 12. Best Predictor (Win prediction accuracy against all completed matches)
+    // 15. Best Win Predictor
     const totalCompleted = matchIds.length;
-    const predCorrectByUser = {};
+    const predByUser = {};
     for (const p of predictions) {
-      if (!p.isCorrect) continue;
       const uid = String(p.userId._id);
-      if (!predCorrectByUser[uid]) predCorrectByUser[uid] = { name: p.userId.name, correct: 0 };
-      predCorrectByUser[uid].correct++;
+      if (!predByUser[uid]) predByUser[uid] = { name: p.userId.name, total: 0, correct: 0 };
+      predByUser[uid].total++;
+      if (p.isCorrect) predByUser[uid].correct++;
     }
-    const predictors = Object.values(predCorrectByUser)
-      .map(u => ({ name: u.name, pct: Math.round((u.correct / totalCompleted) * 100), correct: u.correct, total: totalCompleted }))
-      .sort((a, b) => b.correct - a.correct || b.pct - a.pct);
-    if (predictors[0]) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Predictor', winner: predictors[0].name, value: `${predictors[0].pct}% (${predictors[0].correct}/${totalCompleted})` });
+    const allPredictors = Object.values(predByUser)
+      .map(u => ({ name: u.name, pct: Math.round((u.correct / totalCompleted) * 100), correct: u.correct }));
+    const bestPredictors = [...allPredictors].sort((a, b) => b.correct - a.correct || b.pct - a.pct);
+    if (bestPredictors[0]) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Win Predictor', winner: bestPredictors[0].name, value: `${bestPredictors[0].pct}% (${bestPredictors[0].correct}/${totalCompleted})` });
+
+    // 16. Worst Win Predictor
+    const worstPredictors = [...allPredictors].sort((a, b) => a.correct - b.correct || a.pct - b.pct);
+    if (worstPredictors[0]) awards.push({ type: 'worst_predictor', icon: 'do_not_disturb', title: 'Worst Win Predictor', winner: worstPredictors[0].name, value: `${worstPredictors[0].pct}% (${worstPredictors[0].correct}/${totalCompleted})` });
+
+    // 17. Lowest Top 7 Finishes
+    const top7Counts = users.map(([, u]) => ({
+      name: u.name, count: u.matches.filter(m => m.rank <= 7).length, total: u.matches.length,
+    })).sort((a, b) => a.count - b.count);
+    if (top7Counts[0]) awards.push({ type: 'lowest_top7', icon: 'arrow_downward', title: 'Lowest Top 7 Finishes', winner: top7Counts[0].name, value: `${top7Counts[0].count}/${top7Counts[0].total} in top 7` });
+
+    // 18. Lowest Bowling Points
+    const bowlLowest = [...bowlTotals].sort((a, b) => a.total - b.total);
+    if (bowlLowest[0]) awards.push({ type: 'lowest_bowling', icon: 'sports_baseball', title: 'Lowest Bowling Points', winner: bowlLowest[0].name, value: `${bowlLowest[0].total} pts from bowlers` });
+
+    // 19. Lowest Batting Points
+    const batLowest = [...batTotals].sort((a, b) => a.total - b.total);
+    if (batLowest[0]) awards.push({ type: 'lowest_batting', icon: 'sports_cricket', title: 'Lowest Batting Points', winner: batLowest[0].name, value: `${batLowest[0].total} pts from BAT/WK` });
+
+    // 20. Lowest All-Rounder Points
+    const arLowest = [...arTotals].sort((a, b) => a.total - b.total);
+    if (arLowest[0]) awards.push({ type: 'lowest_allrounder', icon: 'psychology', title: 'Lowest All-Rounder Points', winner: arLowest[0].name, value: `${arLowest[0].total} pts from all-rounders` });
 
     res.json({ awards, matchesPlayed: matchIds.length });
   } catch (err) {
