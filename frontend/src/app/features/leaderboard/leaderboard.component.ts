@@ -112,7 +112,7 @@ import { firstValueFrom } from 'rxjs';
           </div>
         </mat-tab>
         <!-- Awards -->
-        <mat-tab label="Awards">
+        <!-- <mat-tab label="Awards">
           @defer (on immediate) {
             @if (seasonAwards.isLoading()) {
               <div class="flex justify-center p-12"><mat-spinner diameter="48" /></div>
@@ -155,7 +155,7 @@ import { firstValueFrom } from 'rxjs';
           } @placeholder {
             <div class="flex justify-center p-8"><mat-spinner /></div>
           }
-        </mat-tab>
+        </mat-tab> -->
 
         <!-- Season Awards -->
         <mat-tab label="Season Awards">
