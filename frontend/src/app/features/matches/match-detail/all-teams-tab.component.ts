@@ -763,14 +763,6 @@ export class AllTeamsTabComponent implements OnInit, OnDestroy {
 
     return map;
   });
-  readonly predictionsByUserId = computed(() => {
-    const map = new Map<string, Prediction>();
-    for (const prediction of this.predictions()) {
-      const userId = typeof prediction.userId === 'string' ? prediction.userId : prediction.userId.id;
-      map.set(userId, prediction);
-    }
-    return map;
-  });
   readonly rankByTeamId = computed(() => {
     const sorted = [...this.teams()].sort((a, b) => {
       if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
@@ -891,8 +883,11 @@ export class AllTeamsTabComponent implements OnInit, OnDestroy {
   }
 
   getPredictionForTeam(team: FantasyTeam): Prediction | null {
-    const userId = typeof team.userId === 'string' ? team.userId : team.userId.id;
-    return this.predictionsByUserId().get(userId) ?? null;
+    const teamUserId = typeof team.userId === 'string' ? team.userId : (team.userId as any)?._id || (team.userId as any)?.id;
+    return this.predictions().find(prediction => {
+      const predictionUserId = typeof prediction.userId === 'string' ? prediction.userId : (prediction.userId as any)?._id || (prediction.userId as any)?.id;
+      return teamUserId === predictionUserId;
+    }) || null;
   }
 
   isCaptain(team: FantasyTeam, player: Player): boolean {
