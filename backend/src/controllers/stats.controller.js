@@ -324,18 +324,19 @@ const getSeasonAwards = async (req, res) => {
     })).sort((a, b) => b.total - a.total);
     if (arTotals[0]) awards.push({ type: 'all_rounder', icon: 'psychology', title: 'All-Rounder Guru', winner: arTotals[0].name, value: `${arTotals[0].total} pts from AR/WK` });
 
-    // 12. Best Predictor (Win prediction accuracy)
-    const predByUser = {};
+    // 12. Best Predictor (Win prediction accuracy against all completed matches)
+    const totalCompleted = matchIds.length;
+    const predCorrectByUser = {};
     for (const p of predictions) {
+      if (!p.isCorrect) continue;
       const uid = String(p.userId._id);
-      if (!predByUser[uid]) predByUser[uid] = { name: p.userId.name, correct: 0, total: 0 };
-      predByUser[uid].total++;
-      if (p.isCorrect) predByUser[uid].correct++;
+      if (!predCorrectByUser[uid]) predCorrectByUser[uid] = { name: p.userId.name, correct: 0 };
+      predCorrectByUser[uid].correct++;
     }
-    const predictors = Object.values(predByUser)
-      .map(u => ({ name: u.name, pct: u.total > 0 ? Math.round((u.correct / u.total) * 100) : 0, correct: u.correct, total: u.total }))
-      .sort((a, b) => b.pct - a.pct || b.correct - a.correct);
-    if (predictors[0] && predictors[0].total > 0) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Winner Predictor', winner: predictors[0].name, value: `${predictors[0].pct}% (${predictors[0].correct}/${predictors[0].total})` });
+    const predictors = Object.values(predCorrectByUser)
+      .map(u => ({ name: u.name, pct: Math.round((u.correct / totalCompleted) * 100), correct: u.correct, total: totalCompleted }))
+      .sort((a, b) => b.correct - a.correct || b.pct - a.pct);
+    if (predictors[0]) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Predictor', winner: predictors[0].name, value: `${predictors[0].pct}% (${predictors[0].correct}/${totalCompleted})` });
 
     res.json({ awards, matchesPlayed: matchIds.length });
   } catch (err) {
