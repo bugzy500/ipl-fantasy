@@ -281,11 +281,11 @@ const getSeasonAwards = async (req, res) => {
     })).sort((a, b) => b.total - a.total);
     if (vcTotals[0]) awards.push({ type: 'best_vc_total', icon: 'star_half', title: 'Best Vice-Captain Picker', winner: vcTotals[0].name, value: `${vcTotals[0].total} VC pts` });
 
-    // 6. Pity Award (Maximum 6th position finishes)
-    const sixthCounts = users.map(([, u]) => ({
-      name: u.name, count: u.matches.filter(m => m.rank === 6).length,
+    // 6. Pity Award (Maximum 7th position finishes)
+    const seventhCounts = users.map(([, u]) => ({
+      name: u.name, count: u.matches.filter(m => m.rank === 7).length,
     })).sort((a, b) => b.count - a.count);
-    if (sixthCounts[0] && sixthCounts[0].count > 0) awards.push({ type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award (Most 6th Places)', winner: sixthCounts[0].name, value: `${sixthCounts[0].count} times 6th` });
+    if (seventhCounts[0] && seventhCounts[0].count > 0) awards.push({ type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award (Most 7th Places)', winner: seventhCounts[0].name, value: `${seventhCounts[0].count} times 7th` });
 
     // 7. Position Lover (Maximum times at same position)
     let posLover = { name: '', pos: 0, count: 0 };
@@ -335,7 +335,7 @@ const getSeasonAwards = async (req, res) => {
     const predictors = Object.values(predByUser)
       .map(u => ({ name: u.name, pct: u.total > 0 ? Math.round((u.correct / u.total) * 100) : 0, correct: u.correct, total: u.total }))
       .sort((a, b) => b.pct - a.pct || b.correct - a.correct);
-    if (predictors[0] && predictors[0].total > 0) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Predictor', winner: predictors[0].name, value: `${predictors[0].pct}% (${predictors[0].correct}/${predictors[0].total})` });
+    if (predictors[0] && predictors[0].total > 0) awards.push({ type: 'best_predictor', icon: 'psychology_alt', title: 'Best Winner Predictor', winner: predictors[0].name, value: `${predictors[0].pct}% (${predictors[0].correct}/${predictors[0].total})` });
 
     res.json({ awards, matchesPlayed: matchIds.length });
   } catch (err) {

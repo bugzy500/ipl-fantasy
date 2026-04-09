@@ -100,7 +100,8 @@ async function processPerformances(matchId, performances, { markCompleted = fals
       ...(match.playingXI?.team1 || []),
       ...(match.playingXI?.team2 || []),
     ];
-    await calculateAwards(matchId, playerPointsMap, playingXIIds);
+    // Per-match awards removed — season category awards are calculated dynamically
+    // await calculateAwards(matchId, playerPointsMap, playingXIIds);
 
     // Evaluate all predictions and award bonus points
     await evaluatePredictions(matchId, match.result);

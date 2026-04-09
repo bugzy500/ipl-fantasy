@@ -71,22 +71,23 @@ def calculate_fantasy_points(perf, role):
     wk = perf.get("wickets", 0)
     overs = perf.get("oversBowled", 0)
 
-    # Batting
-    pts += runs * 1.0
-    pts += perf.get("fours", 0) * 1.0
-    pts += perf.get("sixes", 0) * 2.0
-    if runs >= 100: pts += 16.0
-    elif runs >= 50: pts += 8.0
-    if perf.get("didBat") and runs == 0 and perf.get("isDismissed") and role != "BOWL":
-        pts -= 2.0
-    if bf >= 10:
-        sr = (runs / bf) * 100
-        if sr > 170: pts += 6.0
-        elif sr > 150: pts += 4.0
-        elif sr >= 130: pts += 2.0
-        elif 60 <= sr <= 70: pts -= 2.0
-        elif 50 <= sr < 60: pts -= 4.0
-        elif sr < 50: pts -= 6.0
+    # Batting (only if player batted — matches Node.js scoring.service.js)
+    if perf.get("didBat"):
+        pts += runs * 1.0
+        pts += perf.get("fours", 0) * 1.0
+        pts += perf.get("sixes", 0) * 2.0
+        if runs >= 100: pts += 16.0
+        elif runs >= 50: pts += 8.0
+        if runs == 0 and perf.get("isDismissed") and role != "BOWL":
+            pts -= 2.0
+        if bf >= 10:
+            sr = (runs / bf) * 100
+            if sr > 170: pts += 6.0
+            elif sr > 150: pts += 4.0
+            elif sr >= 130: pts += 2.0
+            elif 60 <= sr <= 70: pts -= 2.0
+            elif 50 <= sr < 60: pts -= 4.0
+            elif sr < 50: pts -= 6.0
 
     # Bowling
     pts += wk * 25.0
@@ -986,12 +987,14 @@ def parse_scorecard(data):
     if not data or "scoreCard" not in data:
         return None
 
-    result = {"innings": [], "teams": [], "is_complete": False}
+    result = {"innings": [], "teams": [], "is_complete": False, "result_text": ""}
 
     # Check match status from matchHeader if available
     header = data.get("matchHeader", {})
     match_state = header.get("state", "").lower()
-    result["is_complete"] = match_state == "complete" or "won" in header.get("status", "").lower()
+    status_text = header.get("status", "")
+    result["is_complete"] = match_state == "complete" or "won" in status_text.lower()
+    result["result_text"] = status_text  # e.g. "CSK won by 5 wickets"
 
     for innings in data["scoreCard"]:
         bat_team = innings.get("batTeamDetails", {})
@@ -1064,6 +1067,39 @@ def parse_scorecard(data):
     return result
 
 
+# ─── Winner Extraction ───
+# Map full team names to abbreviations for prediction matching
+FULL_TEAM_NAMES = {
+    "chennai super kings": "CSK", "mumbai indians": "MI",
+    "royal challengers bengaluru": "RCB", "royal challengers bangalore": "RCB",
+    "kolkata knight riders": "KKR", "rajasthan royals": "RR",
+    "delhi capitals": "DC", "sunrisers hyderabad": "SRH",
+    "punjab kings": "PBKS", "kings xi punjab": "PBKS",
+    "lucknow super giants": "LSG", "gujarat titans": "GT",
+}
+
+def _extract_winner(result_text, match):
+    """Extract winning team abbreviation from result string like 'Chennai Super Kings won by 5 wickets'."""
+    if not result_text:
+        return None
+    rt = result_text.lower()
+    # Check if result mentions "won" or "beat"
+    if "won" not in rt and "beat" not in rt:
+        return None  # Could be a tie/no result
+    # Match against full team names
+    for full_name, abbr in FULL_TEAM_NAMES.items():
+        if full_name in rt:
+            return abbr
+    # Fallback: check if team1 or team2 abbreviation appears
+    t1 = match.get("team1", "")
+    t2 = match.get("team2", "")
+    if t1.lower() in rt:
+        return t1
+    if t2.lower() in rt:
+        return t2
+    return None
+
+
 # ─── MongoDB Integration ───
 def update_match_scores(db, cb_match_id, scorecard):
     """Map parsed scorecard → PlayerPerformance → Fantasy points → Team scores."""
@@ -1099,9 +1135,18 @@ def update_match_scores(db, cb_match_id, scorecard):
 
     match_id = match["_id"]
 
-    # Update match status
+    # Update match status + result
+    result_text = scorecard.get("result_text", "")
     if scorecard.get("is_complete"):
-        db.matches.update_one({"_id": match_id}, {"$set": {"status": "completed"}})
+        update_fields = {"status": "completed"}
+        if result_text:
+            update_fields["result"] = result_text
+            # Extract winning team abbreviation from result text
+            # e.g. "Chennai Super Kings won by 5 wickets" → find matching team
+            winner = _extract_winner(result_text, match)
+            if winner:
+                update_fields["winner"] = winner
+        db.matches.update_one({"_id": match_id}, {"$set": update_fields})
     elif any(inn["batting"] for inn in scorecard["innings"]):
         db.matches.update_one({"_id": match_id}, {"$set": {"status": "live"}})
 
@@ -1192,7 +1237,7 @@ def update_match_scores(db, cb_match_id, scorecard):
             # LBW/Bowled bonus
             wc = bat.get("wicket_code", "")
             if wc in ("LBW", "BOWLED") and bat.get("bowler_id"):
-                bowler = find_player(cb_id=bat["bowler_id"])
+                bowler = cb_to_player.get(bat["bowler_id"]) or find_player(cb_id=bat["bowler_id"])
                 if not bowler:
                     # Try to find bowler from bowling data
                     for inn2 in scorecard["innings"]:
@@ -1296,7 +1341,33 @@ def update_match_scores(db, cb_match_id, scorecard):
             {"$set": perf}, upsert=True
         )
 
-    # Recalculate fantasy teams
+    # Evaluate predictions if match is completed
+    # Re-fetch match to get updated result/winner fields
+    match = db.matches.find_one({"_id": match_id})
+    prediction_bonus = {}  # userId → bonus points
+    if match.get("status") == "completed" and match.get("winner"):
+        winner = match["winner"]
+        preds = list(db.predictions.find({"matchId": match_id}))
+        for pred in preds:
+            is_correct = pred.get("predictedWinner") == winner
+            bonus = 25 if is_correct else 0
+            # Super-over prediction bonus
+            if pred.get("predictionType") == "superover":
+                result_text = match.get("result", "")
+                has_super_over = "super over" in result_text.lower() if result_text else False
+                is_correct = has_super_over
+                bonus = 80 if is_correct else 0
+            db.predictions.update_one(
+                {"_id": pred["_id"]},
+                {"$set": {"isCorrect": is_correct, "bonusPoints": bonus}}
+            )
+            uid = str(pred["userId"])
+            prediction_bonus[uid] = prediction_bonus.get(uid, 0) + bonus
+        if preds:
+            correct_count = sum(1 for p in preds if p.get("predictedWinner") == winner)
+            print(f"    Predictions: {len(preds)} evaluated, {correct_count} correct ({winner} won)")
+
+    # Recalculate fantasy teams (includes prediction bonus for completed matches)
     teams_cursor = list(db.fantasyteams.find({"matchId": match_id}))
     league = db.leagues.find_one({"season": "IPL_2026"}, {"members": 1})
     member_id_set = {str(uid) for uid in league.get("members", [])} if league else set()
@@ -1308,6 +1379,9 @@ def update_match_scores(db, cb_match_id, scorecard):
             is_cap = str(team.get("captain")) == str(p_id)
             is_vc = str(team.get("viceCaptain")) == str(p_id)
             total += apply_multiplier(base, is_cap, is_vc)
+        # Add prediction bonus (idempotent: always recalculated from prediction records)
+        uid = str(team.get("userId"))
+        total += prediction_bonus.get(uid, 0)
         total = round(total, 1)
         db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": {"totalPoints": total}})
 
