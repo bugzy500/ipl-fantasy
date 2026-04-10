@@ -4,6 +4,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -14,7 +15,7 @@ import { PointBreakdownDialogComponent } from '../../shared/components/point-bre
 @Component({
   selector: 'app-leaderboard',
   standalone: true,
-  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, FormsModule, MatDialogModule],
+  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, MatFormFieldModule, FormsModule, MatDialogModule],
   template: `
     <div class="space-y-6 fade-up">
       <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">
@@ -77,13 +78,30 @@ import { PointBreakdownDialogComponent } from '../../shared/components/point-bre
         <!-- Match Leaderboard -->
         <mat-tab label="Match">
           <div class="mt-6 space-y-4">
-            <mat-select [value]="selectedMatchId()" (selectionChange)="selectedMatchId.set($event.value)" placeholder="Select a completed match">
-              @for (match of completedMatches.value() ?? []; track match._id) {
-                <mat-option [value]="match._id">
-                  {{ match.team1 }} vs {{ match.team2 }} - {{ formatDate(match.scheduledAt) }}
-                </mat-option>
-              }
-            </mat-select>
+            <!-- Filters row -->
+            <div class="flex gap-3">
+              <!-- Team filter -->
+              <mat-form-field appearance="outline" class="flex-1" style="--mdc-outlined-text-field-outline-color: var(--color-border); --mdc-outlined-text-field-hover-outline-color: var(--color-accent); --mdc-outlined-text-field-focus-outline-color: var(--color-accent); --mat-select-trigger-text-size: 13px;">
+                <mat-label style="color: var(--color-text-muted); font-size: 13px;">Filter by team</mat-label>
+                <mat-select [value]="selectedTeamFilter()" (selectionChange)="selectedTeamFilter.set($event.value); selectedMatchId.set('')">
+                  @for (team of completedMatchTeams(); track team) {
+                    <mat-option [value]="team">{{ team }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Match selector -->
+              <mat-form-field appearance="outline" class="flex-[2]" style="--mdc-outlined-text-field-outline-color: var(--color-border); --mdc-outlined-text-field-hover-outline-color: var(--color-accent); --mdc-outlined-text-field-focus-outline-color: var(--color-accent); --mat-select-trigger-text-size: 13px;">
+                <mat-label style="color: var(--color-text-muted); font-size: 13px;">Select a match</mat-label>
+                <mat-select [value]="selectedMatchId()" (selectionChange)="selectedMatchId.set($event.value)" placeholder="Select a match">
+                  @for (match of filteredCompletedMatches(); track match._id) {
+                    <mat-option [value]="match._id">
+                      {{ match.team1 }} vs {{ match.team2 }} — {{ formatDate(match.scheduledAt) }}
+                    </mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            </div>
 
             @if (matchLeaderboard.isLoading()) {
               <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
@@ -317,6 +335,7 @@ export class LeaderboardComponent {
   }
 
   readonly selectedMatchId = signal<string>('');
+  readonly selectedTeamFilter = signal<string>('ALL');
   readonly expandedMoneyUser = signal<string>('');
 
   toggleMoneyExpand(userId: string): void {
@@ -333,6 +352,20 @@ export class LeaderboardComponent {
       return matches.filter((m) => m.status === 'completed');
     },
   });
+
+  completedMatchTeams(): string[] {
+    const matches = this.completedMatches.value() ?? [];
+    const teams = new Set<string>();
+    matches.forEach(m => { teams.add(m.team1); teams.add(m.team2); });
+    return ['ALL', ...Array.from(teams).sort()];
+  }
+
+  filteredCompletedMatches() {
+    const matches = this.completedMatches.value() ?? [];
+    const team = this.selectedTeamFilter();
+    if (!team || team === 'ALL') return matches;
+    return matches.filter(m => m.team1 === team || m.team2 === team);
+  }
 
   readonly seasonAwards = resource({
     loader: () => firstValueFrom(this.api.getSeasonAwards()),
