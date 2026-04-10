@@ -181,8 +181,8 @@ export class PointBreakdownDialogComponent implements OnInit {
 
   filteredBreakdowns() {
     const all = this._breakdowns.value() ?? [];
-    if (!this.data.matchId) return all;
-    return all.filter((t: any) => String(t.match?._id) === String(this.data.matchId));
+    if (this.data.matchId) return all.filter((t: any) => String(t.match?._id) === String(this.data.matchId));
+    return all.filter((t: any) => t.match?.status === 'completed');
   }
   
   private _breakdowns = resource({
