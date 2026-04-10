@@ -2388,7 +2388,7 @@ def main():
                     if im_result:
                         im_msg = build_team_summary_message(im_result, um)
                         if im_msg:
-                            send_group(im_msg)
+                            send_dm("917567838028", im_msg)
                 except Exception as im_err:
                     print(f"  Infinity Max early-submit error: {im_err}")
         except Exception as e:
@@ -2422,7 +2422,7 @@ def main():
                     if im_result:
                         im_msg = build_team_summary_message(im_result, lm)
                         if im_msg:
-                            send_group(im_msg)
+                            send_dm("917567838028", im_msg)
                 except Exception as im_err:
                     print(f"  Infinity Max builder error: {im_err}")
 
