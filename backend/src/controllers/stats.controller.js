@@ -81,7 +81,7 @@ const getSeasonInsights = async (req, res) => {
 
     // --- Real Money: ₹60/match, top-5 payout (150/125/100/75/50), rest → award pool ---
     const ENTRY_FEE = 60;
-    const PRIZE_TABLE = [150, 130, 110, 90, 70, 50]; // 1st through 6th
+    const PRIZE_TABLE = [150, 130, 110, 90, 70, 50, 40]; // 1st through 7th
     const moneyByUser = {};
     let totalAwardPool = 0;
 
