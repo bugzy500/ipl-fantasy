@@ -191,16 +191,19 @@ export class PointBreakdownDialogComponent implements OnInit {
     }
   });
 
+  private _autoExpanded = false;
+
   constructor() {
     effect(() => {
       const all = this._breakdowns.value();
-      if (!all || all.length === 0) return;
+      if (!all || all.length === 0 || this._autoExpanded) return;
       const res = this.data.matchId
         ? all.filter((t: any) => String(t.match?._id) === String(this.data.matchId))
-        : all;
-      if (res.length > 0 && !this.expandedMatchId()) {
+        : all.filter((t: any) => t.match?.status === 'completed');
+      if (res.length > 0) {
         const liveMatch = res.find((r: any) => r.match?.status === 'live');
         this.expandedMatchId.set(liveMatch ? liveMatch.teamId : res[0].teamId);
+        this._autoExpanded = true;
       }
     });
   }
