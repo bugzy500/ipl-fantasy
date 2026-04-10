@@ -67,11 +67,20 @@ export interface UserBreakdownTeamPlayer {
   isViceCaptain: boolean;
 }
 
+export interface UserBreakdownPrediction {
+  type: 'winner' | 'superover';
+  predictedWinner: string;
+  isCorrect: boolean | null;
+  bonusPoints: number;
+}
+
 export interface UserBreakdownTeam {
   teamId: string;
   match: Match;
   totalPoints: number;
   players: UserBreakdownTeamPlayer[];
+  predictionBonus: number;
+  predictionDetails: UserBreakdownPrediction[];
 }
 
 export interface PlayerPerformance {

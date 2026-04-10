@@ -90,43 +90,66 @@ const PlayerPerformance = require('../models/PlayerPerformance.model');
 const getUserBreakdown = async (req, res) => {
   try {
     const { userId } = req.params;
-    
-    // 1. Fetch all teams for user, returning populated match and players
+    const Prediction = require('../models/Prediction.model');
+
+    // 1. Fetch all teams for user
     const teams = await FantasyTeam.find({ userId })
       .populate('matchId', 'team1 team2 scheduledAt status result')
       .populate('players', 'name franchise role imageUrl')
       .sort({ createdAt: -1 })
       .lean();
 
-    // 2. Extract match IDs to fetch performances
+    // 2. Extract match IDs
     const matchIds = teams.map(t => t.matchId._id);
-    const performances = await PlayerPerformance.find({ matchId: { $in: matchIds } }).lean();
 
-    // 3. Group by matchId -> playerId for quick lookup
+    // 3. Fetch performances + predictions in parallel
+    const [performances, predictions] = await Promise.all([
+      PlayerPerformance.find({ matchId: { $in: matchIds } }).lean(),
+      Prediction.find({ userId, matchId: { $in: matchIds } }).lean(),
+    ]);
+
+    // 4. Group performances by matchId -> playerId
     const perfMap = {};
     for (const p of performances) {
       if (!perfMap[p.matchId]) perfMap[p.matchId] = {};
       perfMap[p.matchId][p.playerId] = p;
     }
 
-    // 4. Build output
+    // 5. Group predictions by matchId
+    const predMap = {};
+    for (const p of predictions) {
+      const mid = String(p.matchId);
+      if (!predMap[mid]) predMap[mid] = [];
+      predMap[mid].push(p);
+    }
+
+    // 6. Build output
     const breakdown = teams.map(team => {
       const matchPerfMap = perfMap[team.matchId._id] || {};
-      
-      const populatedPlayers = team.players.map(player => {
-        return {
-          player,
-          performance: matchPerfMap[player._id] || null,
-          isCaptain: String(team.captain) === String(player._id),
-          isViceCaptain: String(team.viceCaptain) === String(player._id),
-        };
-      });
+      const matchPreds = predMap[String(team.matchId._id)] || [];
+
+      const populatedPlayers = team.players.map(player => ({
+        player,
+        performance: matchPerfMap[player._id] || null,
+        isCaptain: String(team.captain) === String(player._id),
+        isViceCaptain: String(team.viceCaptain) === String(player._id),
+      }));
+
+      const predictionBonus = matchPreds.reduce((sum, p) => sum + (p.bonusPoints || 0), 0);
+      const predictionDetails = matchPreds.map(p => ({
+        type: p.predictionType,
+        predictedWinner: p.predictedWinner,
+        isCorrect: p.isCorrect,
+        bonusPoints: p.bonusPoints || 0,
+      }));
 
       return {
         teamId: team._id,
         match: team.matchId,
         totalPoints: team.totalPoints,
-        players: populatedPlayers
+        players: populatedPlayers,
+        predictionBonus,
+        predictionDetails,
       };
     });
 

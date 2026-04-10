@@ -155,6 +155,38 @@ import { firstValueFrom } from 'rxjs';
                       }
                     </div>
                   }
+                  <!-- Prediction Bonus row -->
+                  @if (team.predictionBonus > 0 || (team.predictionDetails && team.predictionDetails.length > 0)) {
+                    <div class="rounded-xl px-3 py-3 mt-1" style="border: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <mat-icon style="font-size: 16px; width: 16px; height: 16px; color: var(--color-accent);">psychology_alt</mat-icon>
+                          <span class="text-sm font-medium" style="color: var(--color-text);">Win Prediction Bonus</span>
+                        </div>
+                        <span class="font-bold text-sm" [style.color]="pointColor(team.predictionBonus)">
+                          {{ team.predictionBonus > 0 ? '+' + team.predictionBonus : team.predictionBonus }}
+                        </span>
+                      </div>
+                      @for (pred of team.predictionDetails; track pred.type) {
+                        <div class="flex items-center justify-between mt-2 text-xs pl-6">
+                          <div style="color: var(--color-text-muted);">
+                            {{ pred.type === 'superover' ? 'Super over prediction' : 'Winner prediction' }}
+                            — {{ pred.predictedWinner }}
+                            @if (pred.isCorrect === true) {
+                              <span style="color: var(--color-success);">✓ correct</span>
+                            } @else if (pred.isCorrect === false) {
+                              <span style="color: var(--color-danger);">✗ wrong</span>
+                            } @else {
+                              <span style="color: var(--color-text-subtle);">pending</span>
+                            }
+                          </div>
+                          <span [style.color]="pointColor(pred.bonusPoints)">
+                            {{ pred.bonusPoints > 0 ? '+' + pred.bonusPoints : pred.bonusPoints || '0' }}
+                          </span>
+                        </div>
+                      }
+                    </div>
+                  }
                 </div>
               }
             </div>
