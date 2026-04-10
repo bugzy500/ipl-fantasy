@@ -90,7 +90,7 @@ import { PointBreakdownDialogComponent } from '../../shared/components/point-bre
             }
             @for (entry of matchLeaderboard.value() ?? []; track entry.userId; let i = $index) {
               <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up cursor-pointer hover:brightness-110"
-                   (click)="openBreakdown(entry.userId, entry.userName)"
+                   (click)="openBreakdown(entry.userId, entry.userName, selectedMatchId())"
                    [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                    style="border: 1px solid var(--color-border);">
                 <span class="w-8 text-center text-display font-bold"
@@ -307,9 +307,9 @@ export class LeaderboardComponent {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
 
-  openBreakdown(userId: string, userName: string) {
+  openBreakdown(userId: string, userName: string, matchId?: string) {
     this.dialog.open(PointBreakdownDialogComponent, {
-      data: { userId, userName },
+      data: { userId, userName, matchId: matchId || null },
       width: '100%',
       maxWidth: '500px',
       panelClass: 'bottom-sheet-dialog'

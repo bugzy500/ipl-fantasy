@@ -1,4 +1,4 @@
-import { Component, inject, signal, resource, OnInit, effect } from '@angular/core';
+import { Component, inject, signal, resource, computed, OnInit, effect } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
@@ -11,6 +11,7 @@ import { breakdownSections, displayPoints, summaryPills } from '../../../feature
 export interface PointBreakdownDialogData {
   userId: string;
   userName: string;
+  matchId?: string | null;
 }
 
 import { firstValueFrom } from 'rxjs';
@@ -42,7 +43,7 @@ import { firstValueFrom } from 'rxjs';
         </div>
       } @else {
         <div class="space-y-4">
-          @for (team of breakdowns.value() ?? []; track team.teamId) {
+          @for (team of filteredBreakdowns(); track team.teamId) {
             <div class="rounded-xl overflow-hidden" style="border: 1px solid var(--color-border); background: var(--color-surface);">
               <!-- Match Header -->
               <div class="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
@@ -177,6 +178,12 @@ export class PointBreakdownDialogComponent implements OnInit {
   get breakdowns() {
     return this._breakdowns;
   }
+
+  filteredBreakdowns() {
+    const all = this._breakdowns.value() ?? [];
+    if (!this.data.matchId) return all;
+    return all.filter((t: any) => String(t.match?._id) === String(this.data.matchId));
+  }
   
   private _breakdowns = resource({
     loader: () => {
@@ -186,8 +193,12 @@ export class PointBreakdownDialogComponent implements OnInit {
 
   constructor() {
     effect(() => {
-      const res = this._breakdowns.value();
-      if (res && res.length > 0 && !this.expandedMatchId()) {
+      const all = this._breakdowns.value();
+      if (!all || all.length === 0) return;
+      const res = this.data.matchId
+        ? all.filter((t: any) => String(t.match?._id) === String(this.data.matchId))
+        : all;
+      if (res.length > 0 && !this.expandedMatchId()) {
         const liveMatch = res.find((r: any) => r.match?.status === 'live');
         this.expandedMatchId.set(liveMatch ? liveMatch.teamId : res[0].teamId);
       }
