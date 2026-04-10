@@ -207,7 +207,7 @@ export class PointBreakdownDialogComponent implements OnInit {
   }
 
   formatPoints(p: number) {
-    return p > 0 ? \`+\${p}\` : \`\${p}\`;
+    return p > 0 ? `+${p}` : `${p}`;
   }
 
   pointColor(p: number) {
