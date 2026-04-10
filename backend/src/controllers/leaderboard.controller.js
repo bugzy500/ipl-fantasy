@@ -84,4 +84,56 @@ const getSeasonLeaderboard = async (req, res) => {
   }
 };
 
-module.exports = { getMatchLeaderboard, getSeasonLeaderboard };
+const PlayerPerformance = require('../models/PlayerPerformance.model');
+
+// GET /api/leaderboard/breakdown/:userId
+const getUserBreakdown = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // 1. Fetch all teams for user, returning populated match and players
+    const teams = await FantasyTeam.find({ userId })
+      .populate('matchId', 'team1 team2 scheduledAt status result')
+      .populate('players', 'name franchise role imageUrl')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 2. Extract match IDs to fetch performances
+    const matchIds = teams.map(t => t.matchId._id);
+    const performances = await PlayerPerformance.find({ matchId: { $in: matchIds } }).lean();
+
+    // 3. Group by matchId -> playerId for quick lookup
+    const perfMap = {};
+    for (const p of performances) {
+      if (!perfMap[p.matchId]) perfMap[p.matchId] = {};
+      perfMap[p.matchId][p.playerId] = p;
+    }
+
+    // 4. Build output
+    const breakdown = teams.map(team => {
+      const matchPerfMap = perfMap[team.matchId._id] || {};
+      
+      const populatedPlayers = team.players.map(player => {
+        return {
+          player,
+          performance: matchPerfMap[player._id] || null,
+          isCaptain: String(team.captain) === String(player._id),
+          isViceCaptain: String(team.viceCaptain) === String(player._id),
+        };
+      });
+
+      return {
+        teamId: team._id,
+        match: team.matchId,
+        totalPoints: team.totalPoints,
+        players: populatedPlayers
+      };
+    });
+
+    res.json(breakdown);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { getMatchLeaderboard, getSeasonLeaderboard, getUserBreakdown };

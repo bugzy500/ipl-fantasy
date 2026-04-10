@@ -1,4 +1,5 @@
 import { Component, inject, signal, resource } from '@angular/core';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
@@ -8,11 +9,12 @@ import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { LeaderboardEntry, Award, SeasonInsight, MoneyEntry, SeasonInsightsResponse } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
+import { PointBreakdownDialogComponent } from '../../shared/components/point-breakdown-dialog/point-breakdown-dialog.component';
 
 @Component({
   selector: 'app-leaderboard',
   standalone: true,
-  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, FormsModule],
+  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, FormsModule, MatDialogModule],
   template: `
     <div class="space-y-6 fade-up">
       <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">
@@ -28,7 +30,8 @@ import { firstValueFrom } from 'rxjs';
             }
             <div class="mt-6 space-y-3">
               @for (entry of seasonLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-                <div class="flex items-center gap-4 p-4 rounded-xl transition-all stagger-item fade-up"
+                <div class="flex items-center gap-4 p-4 rounded-xl transition-all stagger-item fade-up cursor-pointer hover:brightness-110"
+                     (click)="openBreakdown(entry.userId, entry.userName)"
                      [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                      [style.border]="i < 3 ? '1px solid ' + rankBorderColor(i) : '1px solid var(--color-border)'">
                   <div class="w-10 h-10 flex items-center justify-center rounded-full text-display font-bold"
@@ -86,7 +89,8 @@ import { firstValueFrom } from 'rxjs';
               <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
             }
             @for (entry of matchLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-              <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+              <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up cursor-pointer hover:brightness-110"
+                   (click)="openBreakdown(entry.userId, entry.userName)"
                    [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                    style="border: 1px solid var(--color-border);">
                 <span class="w-8 text-center text-display font-bold"
@@ -301,6 +305,16 @@ import { firstValueFrom } from 'rxjs';
 export class LeaderboardComponent {
   readonly auth = inject(AuthService);
   private readonly api = inject(ApiService);
+  private readonly dialog = inject(MatDialog);
+
+  openBreakdown(userId: string, userName: string) {
+    this.dialog.open(PointBreakdownDialogComponent, {
+      data: { userId, userName },
+      width: '100%',
+      maxWidth: '500px',
+      panelClass: 'bottom-sheet-dialog'
+    });
+  }
 
   readonly selectedMatchId = signal<string>('');
   readonly expandedMoneyUser = signal<string>('');

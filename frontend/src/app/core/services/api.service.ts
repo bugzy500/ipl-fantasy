@@ -102,6 +102,10 @@ export class ApiService {
     return this.http.get<LeaderboardEntry[]>(`${this.base}/leaderboard/season`);
   }
 
+  getUserBreakdown(userId: string) {
+    return this.http.get<import('../models/api.models').UserBreakdownTeam[]>(`${this.base}/leaderboard/breakdown/${userId}`);
+  }
+
   // ── Awards ──────────────────────────────────────────────────────────────────
   getMatchAwards(matchId: string) {
     return this.http.get<Award[]>(`${this.base}/awards/match/${matchId}`);

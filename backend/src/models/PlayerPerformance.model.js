@@ -29,6 +29,7 @@ const playerPerformanceSchema = new mongoose.Schema(
 
     // Computed by scoring service
     fantasyPoints: { type: Number, default: 0 },
+    scoreBreakdown: { type: mongoose.Schema.Types.Mixed }, // { total: number, sections: array }
   },
   { timestamps: true }
 );

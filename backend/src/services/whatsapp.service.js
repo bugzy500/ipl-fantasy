@@ -7,6 +7,7 @@
 
 const WA_URL = () => process.env.WHATSAPP_API_URL || 'https://wa.dotsai.cloud';
 const WA_TOKEN = () => process.env.WHATSAPP_API_TOKEN;
+const SPL_GROUP_JID = '120363407548600267@g.us';
 
 async function sendDM(phone, message) {
   if (!phone) return false;
@@ -33,6 +34,29 @@ async function sendDM(phone, message) {
   }
 }
 
+async function sendGroup(message) {
+  try {
+    const res = await fetch(`${WA_URL()}/api/send/text`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${WA_TOKEN()}`,
+      },
+      body: JSON.stringify({ to: SPL_GROUP_JID, message }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(`[WhatsApp] Group msg failed:`, data);
+      return false;
+    }
+    console.log(`[WhatsApp] Group msg sent`);
+    return true;
+  } catch (err) {
+    console.error(`[WhatsApp] Group error:`, err.message);
+    return false;
+  }
+}
+
 /**
  * Send deadline reminder DM to each user who hasn't submitted.
  * @param {Object} match - Match doc
@@ -54,7 +78,7 @@ async function sendDeadlineReminders(match, missingUsers) {
 }
 
 /**
- * Send live score update DM to all league members.
+ * Send live score update to SPL group.
  */
 async function sendScoreUpdates(match, allUsers, topUsers) {
   const leaderboard = topUsers
@@ -62,24 +86,15 @@ async function sendScoreUpdates(match, allUsers, topUsers) {
     .map((u, i) => `${i + 1}. ${u.userName} — ${u.totalPoints} pts`)
     .join('\n');
 
-  for (const user of allUsers) {
-    if (!user.phone) continue;
-    // Find this user's position
-    const myRank = topUsers.findIndex((t) => String(t.userId) === String(user._id));
-    const myLine = myRank >= 0
-      ? `\nYou're #${myRank + 1} with ${topUsers[myRank].totalPoints} pts`
-      : '';
-
-    const msg =
-      `📊 *Live — ${match.team1} vs ${match.team2}*\n\n` +
-      `*Top 15 right now:*\n${leaderboard}${myLine}\n\n` +
-      `Points updating live!`;
-    await sendDM(user.phone, msg);
-  }
+  const msg =
+    `📊 *Live — ${match.team1} vs ${match.team2}*\n\n` +
+    `*Leaderboard:*\n${leaderboard}\n\n` +
+    `Points updating live!`;
+  await sendGroup(msg);
 }
 
 /**
- * Send match completed summary DM to all league members.
+ * Send match completed summary to SPL group.
  */
 async function sendMatchSummaries(match, allUsers, topUsers) {
   const medals = ['🥇', '🥈', '🥉'];
@@ -88,19 +103,11 @@ async function sendMatchSummaries(match, allUsers, topUsers) {
     .map((u, i) => `${medals[i]} ${u.userName} — ${u.totalPoints} pts`)
     .join('\n');
 
-  for (const user of allUsers) {
-    if (!user.phone) continue;
-    const myRank = topUsers.findIndex((t) => String(t.userId) === String(user._id));
-    const myLine = myRank >= 0
-      ? `\nYou finished #${myRank + 1} with ${topUsers[myRank].totalPoints} pts`
-      : '';
-
-    const msg =
-      `🏆 *${match.team1} vs ${match.team2}* — Match Complete!\n\n` +
-      `${podium}${myLine}\n\n` +
-      `Full leaderboard in the app.`;
-    await sendDM(user.phone, msg);
-  }
+  const msg =
+    `🏆 *${match.team1} vs ${match.team2}* — Match Complete!\n\n` +
+    `${podium}\n\n` +
+    `Full leaderboard in the app.`;
+  await sendGroup(msg);
 }
 
-module.exports = { sendDM, sendDeadlineReminders, sendScoreUpdates, sendMatchSummaries };
+module.exports = { sendDM, sendGroup, sendDeadlineReminders, sendScoreUpdates, sendMatchSummaries };

@@ -87,7 +87,7 @@ async function liveScoreTick() {
           await team.save();
         }
 
-        // Send live DMs on the 3-minute poll cadence.
+        // Send group update on the 3-minute poll cadence.
         const now = Date.now();
         const lastSent = lastDMUpdate.get(String(match._id)) || 0;
         if (now - lastSent >= LIVE_DM_INTERVAL_MS) {
@@ -100,9 +100,8 @@ async function liveScoreTick() {
             if (user) topUsers.push({ userId: t.userId, userName: user.name, totalPoints: t.totalPoints });
           }
 
-          const allMembers = await getLeagueMembers();
-          if (topUsers.length > 0 && allMembers.length > 0) {
-            await sendScoreUpdates(match, allMembers, topUsers);
+          if (topUsers.length > 0) {
+            await sendScoreUpdates(match, [], topUsers);
             lastDMUpdate.set(String(match._id), now);
           }
         }

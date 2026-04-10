@@ -1107,27 +1107,41 @@ def update_match_scores(db, cb_match_id, scorecard):
     teams = scorecard.get("teams", [])
     team_abbrs = [TEAM_MAP.get(t.lower(), t) for t in teams]
 
-    # Find match in DB — check both team orders
+    # Find match in DB — check both team orders, prefer nearest unlinked match
     match = db.matches.find_one({"cricApiMatchId": str(cb_match_id)})
     if not match and len(team_abbrs) >= 2:
-        # Try all combinations: exact, reversed, regex
-        for t1, t2 in [(team_abbrs[0], team_abbrs[1]), (team_abbrs[1], team_abbrs[0])]:
-            match = db.matches.find_one({"team1": t1, "team2": t2})
-            if match:
-                break
-        if not match:
-            # Regex fallback
-            match = db.matches.find_one({
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        window_start = now - timedelta(hours=12)
+        # Search both team orders, only unlinked matches near today
+        team_filter = {
+            "$or": [
+                {"team1": team_abbrs[0], "team2": team_abbrs[1]},
+                {"team1": team_abbrs[1], "team2": team_abbrs[0]},
+            ],
+            "cricApiMatchId": {"$in": [None, ""]},
+            "scheduledAt": {"$gte": window_start},
+        }
+        candidates = list(db.matches.find(team_filter).sort("scheduledAt", 1).limit(1))
+        if candidates:
+            match = candidates[0]
+        else:
+            # Fallback: try already-linked or any order, still nearest
+            fallback_filter = {
                 "$or": [
                     {"team1": {"$regex": team_abbrs[0], "$options": "i"},
                      "team2": {"$regex": team_abbrs[1], "$options": "i"}},
                     {"team1": {"$regex": team_abbrs[1], "$options": "i"},
                      "team2": {"$regex": team_abbrs[0], "$options": "i"}},
-                ]
-            })
+                ],
+                "scheduledAt": {"$gte": window_start},
+            }
+            candidates = list(db.matches.find(fallback_filter).sort("scheduledAt", 1).limit(1))
+            if candidates:
+                match = candidates[0]
         if match:
             db.matches.update_one({"_id": match["_id"]}, {"$set": {"cricApiMatchId": str(cb_match_id)}})
-            print(f"    Linked {match['team1']} vs {match['team2']} → CB#{cb_match_id}")
+            print(f"    Linked {match['team1']} vs {match['team2']} ({match['scheduledAt']}) → CB#{cb_match_id}")
 
     if not match:
         print(f"    No DB match for CB#{cb_match_id} (teams: {team_abbrs}). Skipping.")

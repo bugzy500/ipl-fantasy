@@ -8,13 +8,15 @@ import { AuthService } from '../../core/services/auth.service';
 import { MatchCardComponent } from '../../shared/components/match-card/match-card.component';
 import { Match, LeaderboardEntry } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { PointBreakdownDialogComponent } from '../../shared/components/point-breakdown-dialog/point-breakdown-dialog.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
   imports: [
     RouterLink,
-    MatButtonModule, MatIconModule, MatProgressSpinnerModule,
+    MatButtonModule, MatIconModule, MatProgressSpinnerModule, MatDialogModule,
     MatchCardComponent,
   ],
   template: `
@@ -44,7 +46,9 @@ import { firstValueFrom } from 'rxjs';
           </div>
           <div class="text-label mt-2">Season Rank</div>
         </div>
-        <div class="card-surface text-center">
+        <div class="card-surface text-center cursor-pointer hover:brightness-110"
+             (click)="auth.currentUser()?.id ? openBreakdown(auth.currentUser()!.id, auth.currentUser()!.name) : null"
+             style="transition: filter 200ms;">
           <div class="text-display text-2xl font-bold" style="color: var(--color-warning);">
             {{ myPoints() }}
           </div>
@@ -125,7 +129,8 @@ import { firstValueFrom } from 'rxjs';
         }
         <div class="card-surface p-0 overflow-hidden" style="border: 1px solid var(--color-border);">
           @for (entry of topLeaderboard(); track entry.userId; let i = $index) {
-            <div class="flex items-center gap-3 px-5 py-3.5 stagger-item fade-up"
+            <div class="flex items-center gap-3 px-5 py-3.5 stagger-item fade-up cursor-pointer hover:brightness-110"
+                 (click)="openBreakdown(entry.userId, entry.userName)"
                  [style.border-bottom]="i < topLeaderboard().length - 1 ? '1px solid var(--color-border)' : 'none'"
                  [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'transparent'">
               <span class="w-7 text-center text-display font-bold text-sm"
@@ -159,6 +164,16 @@ import { firstValueFrom } from 'rxjs';
 export class DashboardComponent {
   readonly auth = inject(AuthService);
   private readonly api = inject(ApiService);
+  private readonly dialog = inject(MatDialog);
+
+  openBreakdown(userId: string, userName: string) {
+    this.dialog.open(PointBreakdownDialogComponent, {
+      data: { userId, userName },
+      width: '100%',
+      maxWidth: '500px',
+      panelClass: 'bottom-sheet-dialog'
+    });
+  }
 
   readonly matches = resource({
     loader: () => firstValueFrom(this.api.getMatches()),

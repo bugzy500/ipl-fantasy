@@ -60,6 +60,20 @@ export interface FantasyTeam {
   isLocked: boolean;
 }
 
+export interface UserBreakdownTeamPlayer {
+  player: Player;
+  performance: PlayerPerformance | null;
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+}
+
+export interface UserBreakdownTeam {
+  teamId: string;
+  match: Match;
+  totalPoints: number;
+  players: UserBreakdownTeamPlayer[];
+}
+
 export interface PlayerPerformance {
   _id: string;
   playerId: Player;
