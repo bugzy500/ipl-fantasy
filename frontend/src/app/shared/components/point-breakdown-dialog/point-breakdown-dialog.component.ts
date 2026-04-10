@@ -8,6 +8,14 @@ import { UserBreakdownTeam, UserBreakdownTeamPlayer } from '../../../core/models
 import { DatePipe } from '@angular/common';
 import { breakdownSections, displayPoints, summaryPills } from '../../../features/matches/match-detail/scorecard.utils';
 
+interface MatchSummary {
+  bowling: number;
+  catchPoints: number;
+  runOutPoints: number;
+  dotBallPoints: number;
+  captainBonus: number;
+}
+
 export interface PointBreakdownDialogData {
   userId: string;
   userName: string;
@@ -80,6 +88,38 @@ import { firstValueFrom } from 'rxjs';
               <!-- Expanded Match Players -->
               @if (expandedMatchId() === team.teamId) {
                 <div class="px-3 py-3 space-y-2" style="border-top: 1px solid var(--color-border);">
+                  <!-- Team Summary Bar -->
+                  @let summary = getMatchSummary(team);
+                  @if (summary.bowling !== 0 || summary.catchPoints !== 0 || summary.runOutPoints !== 0 || summary.dotBallPoints !== 0 || summary.captainBonus !== 0) {
+                    <div class="rounded-xl px-3 py-2.5 mb-1 flex flex-wrap gap-2" style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);">
+                      <span class="text-[10px] font-bold uppercase tracking-wider self-center" style="color: var(--color-text-subtle);">Team:</span>
+                      @if (summary.bowling !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(99,102,241,0.15); color: #a5b4fc;">
+                          🎳 Bowl {{ summary.bowling > 0 ? '+' : '' }}{{ summary.bowling }}
+                        </span>
+                      }
+                      @if (summary.captainBonus !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(245,158,11,0.15); color: #fcd34d;">
+                          🧢 C/VC +{{ summary.captainBonus }}
+                        </span>
+                      }
+                      @if (summary.catchPoints !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(16,185,129,0.15); color: #6ee7b7;">
+                          🤲 Catches +{{ summary.catchPoints }}
+                        </span>
+                      }
+                      @if (summary.runOutPoints !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(236,72,153,0.15); color: #f9a8d4;">
+                          🏃 Run-outs +{{ summary.runOutPoints }}
+                        </span>
+                      }
+                      @if (summary.dotBallPoints !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(100,116,139,0.2); color: #94a3b8;">
+                          ⚫ Dot balls +{{ summary.dotBallPoints }}
+                        </span>
+                      }
+                    </div>
+                  }
                   @for (p of team.players; track p.player._id) {
                     <div class="rounded-xl px-3 py-3" style="border: 1px solid var(--color-border); background: rgba(255,255,255,0.01);">
                       <!-- Player Row Summary -->
@@ -275,5 +315,43 @@ export class PointBreakdownDialogComponent implements OnInit {
 
   getSections(perf: any) {
     return breakdownSections(perf);
+  }
+
+  getMatchSummary(team: UserBreakdownTeam): MatchSummary {
+    let bowling = 0, catchPoints = 0, runOutPoints = 0, dotBallPoints = 0, captainBonus = 0;
+    for (const p of team.players) {
+      const perf = p.performance;
+      if (!perf) continue;
+      const sections = breakdownSections(perf);
+      for (const section of sections) {
+        if (section.key === 'bowling') {
+          bowling += section.subtotal;
+          for (const item of section.items) {
+            if (item.label === 'Dot balls') dotBallPoints += item.points;
+          }
+        }
+        if (section.key === 'fielding') {
+          for (const item of section.items) {
+            if (item.label === 'Catches' || item.label === '3-catch bonus' || item.label === 'Stumpings') {
+              catchPoints += item.points;
+            }
+            if (item.label === 'Direct run-outs' || item.label === 'Indirect run-outs') {
+              runOutPoints += item.points;
+            }
+          }
+        }
+      }
+      // Captain/VC multiplier bonus (extra on top of base)
+      const base = perf.fantasyPoints || 0;
+      if (p.isCaptain) captainBonus += Math.round(base * 10) / 10;       // +1x extra
+      if (p.isViceCaptain) captainBonus += Math.round(base * 0.5 * 10) / 10; // +0.5x extra
+    }
+    return {
+      bowling,
+      catchPoints,
+      runOutPoints,
+      dotBallPoints,
+      captainBonus: Math.round(captainBonus * 10) / 10,
+    };
   }
 }
