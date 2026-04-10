@@ -195,6 +195,22 @@ export interface SeasonInsight {
   label: string;
 }
 
+
+export interface SeasonEndAward {
+  type: string;
+  icon: string;
+  title: string;
+  winner: string;
+  value: string;
+  runnerUp: { name: string; value: string } | null;
+  gap: string | null;
+}
+
+export interface SeasonEndAwardsResponse {
+  awards: SeasonEndAward[];
+  matchesPlayed: number;
+}
+
 export interface MoneyMatchDetail {
   matchLabel: string;
   matchDate: string;

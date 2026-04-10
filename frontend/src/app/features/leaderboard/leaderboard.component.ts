@@ -11,6 +11,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { LeaderboardEntry, Award, SeasonInsight, MoneyEntry, SeasonInsightsResponse } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
 import { PointBreakdownDialogComponent } from '../../shared/components/point-breakdown-dialog/point-breakdown-dialog.component';
+import { SeasonEndAward } from '../../core/models/api.models';
 
 @Component({
   selector: 'app-leaderboard',
@@ -193,26 +194,39 @@ import { PointBreakdownDialogComponent } from '../../shared/components/point-bre
                 </span>
               </div>
               @for (award of seasonEndAwards.value()?.awards ?? []; track award.type) {
-                <div class="flex items-center gap-4 p-4 rounded-xl stagger-item fade-up"
+                <div class="rounded-xl stagger-item fade-up overflow-hidden"
                      style="background: var(--color-surface); border: 1px solid var(--color-border);">
-                  <div class="w-10 h-10 flex items-center justify-center rounded-full"
-                       [style.background]="seasonAwardBg(award.type)">
-                    <mat-icon style="font-size: 20px; width: 20px; height: 20px;"
-                              [style.color]="seasonAwardColor(award.type)">
-                      {{ award.icon }}
-                    </mat-icon>
-                  </div>
-                  <div class="flex-1">
-                    <div class="font-medium text-sm" style="color: var(--color-text);">
-                      {{ award.title }}
+                  <!-- Winner row -->
+                  <div class="flex items-center gap-3 px-4 py-3">
+                    <div class="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                         [style.background]="seasonAwardBg(award.type)">
+                      <mat-icon style="font-size: 18px; width: 18px; height: 18px;"
+                                [style.color]="seasonAwardColor(award.type)">
+                        {{ award.icon }}
+                      </mat-icon>
                     </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">
-                      {{ award.winner }}
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-subtle);">{{ award.title }}</div>
+                      <div class="font-semibold text-sm mt-0.5" style="color: var(--color-text);">🏆 {{ award.winner }}</div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                      <div class="text-display font-bold text-sm" style="color: var(--color-accent-hover);">{{ award.value }}</div>
+                      @if (award.gap) {
+                        <div class="text-[10px] mt-0.5" style="color: var(--color-success);">{{ award.gap }}</div>
+                      }
                     </div>
                   </div>
-                  <div class="text-display font-semibold text-sm" style="color: var(--color-accent-hover);">
-                    {{ award.value }}
-                  </div>
+                  <!-- Runner-up row -->
+                  @if (award.runnerUp) {
+                    <div class="flex items-center justify-between px-4 py-2"
+                         style="background: var(--color-surface-elevated); border-top: 1px solid var(--color-border);">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: var(--color-border); color: var(--color-text-subtle);">2nd</span>
+                        <span class="text-xs" style="color: var(--color-text-muted);">{{ award.runnerUp.name }}</span>
+                      </div>
+                      <span class="text-xs font-medium" style="color: var(--color-text-subtle);">{{ award.runnerUp.value }}</span>
+                    </div>
+                  }
                 </div>
               }
               @if ((seasonEndAwards.value()?.awards?.length ?? 0) === 0 && !seasonEndAwards.isLoading()) {
@@ -376,7 +390,7 @@ export class LeaderboardComponent {
   });
 
   readonly seasonEndAwards = resource({
-    loader: () => firstValueFrom(this.api.getSeasonEndAwards()),
+    loader: (): Promise<import('../../core/models/api.models').SeasonEndAwardsResponse> => firstValueFrom(this.api.getSeasonEndAwards()),
   });
 
   readonly matchLeaderboard = resource({

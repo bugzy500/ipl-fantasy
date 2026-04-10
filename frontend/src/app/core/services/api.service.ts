@@ -14,6 +14,7 @@ import {
   ScoringRulesResponse,
   ForecastResponse,
   ScenariosResponse,
+  SeasonEndAwardsResponse,
 } from '../models/api.models';
 
 /**
@@ -167,7 +168,7 @@ export class ApiService {
   }
 
   getSeasonEndAwards() {
-    return this.http.get<any>(`${this.base}/stats/season-awards`);
+    return this.http.get<SeasonEndAwardsResponse>(`${this.base}/stats/season-awards`);
   }
 
   // ── Forecast ──────────────────────────────────────────────────────────────
