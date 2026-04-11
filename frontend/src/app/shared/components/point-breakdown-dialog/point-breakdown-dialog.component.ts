@@ -9,6 +9,7 @@ import { DatePipe } from '@angular/common';
 import { breakdownSections, displayPoints, summaryPills } from '../../../features/matches/match-detail/scorecard.utils';
 
 interface MatchSummary {
+  batting: number;
   bowling: number;
   catchPoints: number;
   runOutPoints: number;
@@ -90,9 +91,14 @@ import { firstValueFrom } from 'rxjs';
                 <div class="px-3 py-3 space-y-2" style="border-top: 1px solid var(--color-border);">
                   <!-- Team Summary Bar -->
                   @let summary = getMatchSummary(team);
-                  @if (summary.bowling !== 0 || summary.catchPoints !== 0 || summary.runOutPoints !== 0 || summary.dotBallPoints !== 0 || summary.captainBonus !== 0) {
+                  @if (summary.batting !== 0 || summary.bowling !== 0 || summary.catchPoints !== 0 || summary.runOutPoints !== 0 || summary.dotBallPoints !== 0 || summary.captainBonus !== 0) {
                     <div class="rounded-xl px-3 py-2.5 mb-1 flex flex-wrap gap-2" style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);">
                       <span class="text-[10px] font-bold uppercase tracking-wider self-center" style="color: var(--color-text-subtle);">Team:</span>
+                      @if (summary.batting !== 0) {
+                        <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(99,102,241,0.15); color: #a5b4fc;">
+                          🏏 Bat {{ summary.batting > 0 ? '+' : '' }}{{ summary.batting }}
+                        </span>
+                      }
                       @if (summary.bowling !== 0) {
                         <span class="px-2 py-1 rounded-full text-[11px] font-semibold" style="background: rgba(99,102,241,0.15); color: #a5b4fc;">
                           🎳 Bowl {{ summary.bowling > 0 ? '+' : '' }}{{ summary.bowling }}
@@ -324,12 +330,15 @@ export class PointBreakdownDialogComponent implements OnInit {
   }
 
   getMatchSummary(team: UserBreakdownTeam): MatchSummary {
-    let bowling = 0, catchPoints = 0, runOutPoints = 0, dotBallPoints = 0, captainBonus = 0;
+    let batting = 0, bowling = 0, catchPoints = 0, runOutPoints = 0, dotBallPoints = 0, captainBonus = 0;
     for (const p of team.players) {
       const perf = p.performance;
       if (!perf) continue;
       const sections = breakdownSections(perf);
       for (const section of sections) {
+        if (section.key === 'batting') {
+          batting += section.subtotal;
+        }
         if (section.key === 'bowling') {
           bowling += section.subtotal;
           for (const item of section.items) {
@@ -353,6 +362,7 @@ export class PointBreakdownDialogComponent implements OnInit {
       if (p.isViceCaptain) captainBonus += Math.round(base * 0.5 * 10) / 10; // +0.5x extra
     }
     return {
+      batting,
       bowling,
       catchPoints,
       runOutPoints,
