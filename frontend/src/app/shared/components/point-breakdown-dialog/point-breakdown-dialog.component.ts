@@ -201,18 +201,18 @@ import { firstValueFrom } from 'rxjs';
                       }
                     </div>
                   }
-                  <!-- Prediction Bonus row -->
-                  @if (team.predictionBonus > 0 || (team.predictionDetails && team.predictionDetails.length > 0)) {
-                    <div class="rounded-xl px-3 py-3 mt-1" style="border: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                          <mat-icon style="font-size: 16px; width: 16px; height: 16px; color: var(--color-accent);">psychology_alt</mat-icon>
-                          <span class="text-sm font-medium" style="color: var(--color-text);">Win Prediction Bonus</span>
-                        </div>
-                        <span class="font-bold text-sm" [style.color]="pointColor(team.predictionBonus)">
-                          {{ team.predictionBonus > 0 ? '+' + team.predictionBonus : team.predictionBonus }}
-                        </span>
+                  <!-- Prediction Bonus row — always shown for completed matches -->
+                  <div class="rounded-xl px-3 py-3 mt-1" style="border: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <mat-icon style="font-size: 16px; width: 16px; height: 16px; color: var(--color-accent);">psychology_alt</mat-icon>
+                        <span class="text-sm font-medium" style="color: var(--color-text);">Win Prediction Bonus</span>
                       </div>
+                      <span class="font-bold text-sm" [style.color]="pointColor(team.predictionBonus)">
+                        {{ (team.predictionBonus ?? 0) > 0 ? '+' + team.predictionBonus : (team.predictionBonus ?? 0) }}
+                      </span>
+                    </div>
+                    @if (team.predictionDetails && team.predictionDetails.length > 0) {
                       @for (pred of team.predictionDetails; track pred.type) {
                         <div class="flex items-center justify-between mt-2 text-xs pl-6">
                           <div style="color: var(--color-text-muted);">
@@ -231,8 +231,10 @@ import { firstValueFrom } from 'rxjs';
                           </span>
                         </div>
                       }
-                    </div>
-                  }
+                    } @else {
+                      <div class="mt-2 text-xs pl-6" style="color: var(--color-text-subtle);">No prediction made</div>
+                    }
+                  </div>
 
                   <!-- Match Total row -->
                   <div class="flex items-center justify-between mt-3 pt-3" style="border-top: 2px solid var(--color-border);">
@@ -356,10 +358,10 @@ export class PointBreakdownDialogComponent implements OnInit {
           }
         }
       }
-      // Captain/VC multiplier bonus (extra on top of base)
-      const base = perf.fantasyPoints || 0;
-      if (p.isCaptain) captainBonus += Math.round(base * 10) / 10;       // +1x extra
-      if (p.isViceCaptain) captainBonus += Math.round(base * 0.5 * 10) / 10; // +0.5x extra
+      // Captain/VC multiplier bonus — use section-based points to stay consistent with batting/bowling chips
+      const playerBase = sections.reduce((sum, s) => sum + s.subtotal, 0);
+      if (p.isCaptain) captainBonus += Math.round(playerBase * 10) / 10;
+      if (p.isViceCaptain) captainBonus += Math.round(playerBase * 0.5 * 10) / 10;
     }
     return {
       batting,
