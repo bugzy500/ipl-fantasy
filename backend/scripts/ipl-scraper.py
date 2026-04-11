@@ -1550,8 +1550,10 @@ def update_dot_balls_from_espn(db, match, players_by_name):
             if result.modified_count > 0:
                 updated += 1
 
-        # Store ESPN ID and recalculate if we updated anything
-        db.matches.update_one({"_id": match_id}, {"$set": {"espnMatchId": str(espn_id)}})
+        # Only mark espnMatchId as done when dots were actually written.
+        # If we save it before confirming writes, it blocks all future retries silently.
+        if updated > 0:
+            db.matches.update_one({"_id": match_id}, {"$set": {"espnMatchId": str(espn_id)}})
 
         if updated > 0:
             # Recalculate fantasy points for affected bowlers
