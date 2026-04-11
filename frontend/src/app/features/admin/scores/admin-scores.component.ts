@@ -46,7 +46,7 @@ import { firstValueFrom } from 'rxjs';
             <mat-label>Match Result</mat-label>
             <input matInput formControlName="matchResult"
                    placeholder="e.g. CSK won by 5 wickets" />
-            <mat-hint>Required for prediction bonus points (25 pts for correct winner, 80 pts for super over)</mat-hint>
+            <mat-hint>Required for prediction bonus points (50 pts for correct winner, 150 pts for super over)</mat-hint>
           </mat-form-field>
 
           <div class="space-y-3 mt-4" formArrayName="performances">
