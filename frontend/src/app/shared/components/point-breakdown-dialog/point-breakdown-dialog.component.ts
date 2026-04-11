@@ -227,6 +227,12 @@ import { firstValueFrom } from 'rxjs';
                       }
                     </div>
                   }
+
+                  <!-- Match Total row -->
+                  <div class="flex items-center justify-between mt-3 pt-3" style="border-top: 2px solid var(--color-border);">
+                    <span class="text-sm font-bold" style="color: var(--color-text);">Match Total</span>
+                    <span class="text-lg font-bold" style="color: var(--color-accent-hover);">{{ formatPoints(team.totalPoints) }}</span>
+                  </div>
                 </div>
               }
             </div>
