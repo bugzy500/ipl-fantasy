@@ -155,6 +155,14 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
               }
             </div>
 
+            <!-- Result string for completed matches -->
+            @if (match.status === 'completed' && match.result) {
+              <div class="text-sm px-3 py-2 rounded-lg font-medium"
+                   style="background: rgba(34, 197, 94, 0.1); color: var(--color-success);">
+                Result: {{ match.result }}
+              </div>
+            }
+
             <!-- Action buttons per status -->
             <div class="flex flex-wrap gap-2">
               @if (match.status === 'upcoming') {
@@ -173,6 +181,14 @@ const FRANCHISES: Franchise[] = ['CSK', 'MI', 'RCB', 'KKR', 'SRH', 'RR', 'PBKS',
                 </a>
                 <button mat-stroked-button color="warn" (click)="updateStatus(match._id, 'abandoned')">
                   ⚠ Abandon
+                </button>
+              }
+              @if (match.status === 'completed') {
+                <a mat-stroked-button [routerLink]="['/admin/scores', match._id]">
+                  📊 View / Re-enter Scores
+                </a>
+                <button mat-stroked-button color="warn" (click)="updateStatus(match._id, 'live')">
+                  ↩ Reopen as Live
                 </button>
               }
             </div>

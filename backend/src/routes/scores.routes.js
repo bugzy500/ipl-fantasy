@@ -5,9 +5,11 @@ const { requireAdmin } = require('../middleware/admin.middleware');
 
 const router = Router();
 
+// Public — scoring rules are visible to everyone (no login required)
+router.get('/rules', getRules);
+
 router.use(authenticate);
 
-router.get('/rules', getRules);
 router.get('/:matchId', getScores);
 router.post('/:matchId', requireAdmin, submitScores);
 

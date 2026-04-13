@@ -1,6 +1,6 @@
 const Match = require('../models/Match.model');
 const Player = require('../models/Player.model');
-const { getMatchScorecard, mapScorecardToPerformances } = require('./cricapi.service');
+const { getMatchScorecard, mapScorecardToPerformances, convertResultToLocal } = require('./cricapi.service');
 const { matchPlayer } = require('./name-matcher.service');
 const { processPerformances } = require('./score-processor.service');
 const { calculateAwards } = require('./awards.service');
@@ -55,7 +55,7 @@ async function pollOnce(matchId, cricApiMatchId) {
     const raw = await getMatchScorecard(cricApiMatchId);
 
     // 2. Map to our schema shape
-    const { performances, matchEnded, images } = mapScorecardToPerformances(raw);
+    const { performances, matchEnded, matchStatus, images } = mapScorecardToPerformances(raw);
 
     if (performances.length === 0) {
       console.log(`[Poller] No performance data yet for match ${matchId}`);
@@ -106,6 +106,13 @@ async function pollOnce(matchId, cricApiMatchId) {
     // 7. If match ended, finalize
     if (matchEnded) {
       console.log(`[Poller] Match ${matchId} ended — finalizing scores`);
+
+      // Set match result from CricAPI status before finalizing so prediction evaluation works
+      if (matchStatus && !match.result) {
+        match.result = convertResultToLocal(matchStatus);
+        await match.save();
+      }
+
       // Re-process with markCompleted to lock teams + calculate awards
       await processPerformances(matchId, resolved, { markCompleted: true });
       stopPolling(matchId);

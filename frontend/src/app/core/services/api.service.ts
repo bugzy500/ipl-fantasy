@@ -12,6 +12,9 @@ import {
   Prediction,
   SeasonInsightsResponse,
   ScoringRulesResponse,
+  ForecastResponse,
+  ScenariosResponse,
+  SeasonEndAwardsResponse,
 } from '../models/api.models';
 
 /**
@@ -87,8 +90,8 @@ export class ApiService {
     return this.http.get<ScoringRulesResponse>(`${this.base}/scores/rules`);
   }
 
-  submitScores(matchId: string, performances: Partial<PlayerPerformance>[]) {
-    return this.http.post(`${this.base}/scores/${matchId}`, { performances });
+  submitScores(matchId: string, performances: Partial<PlayerPerformance>[], result = '') {
+    return this.http.post(`${this.base}/scores/${matchId}`, { performances, result });
   }
 
   // ── Leaderboard ────────────────────────────────────────────────────────────
@@ -98,6 +101,10 @@ export class ApiService {
 
   getSeasonLeaderboard() {
     return this.http.get<LeaderboardEntry[]>(`${this.base}/leaderboard/season`);
+  }
+
+  getUserBreakdown(userId: string) {
+    return this.http.get<import('../models/api.models').UserBreakdownTeam[]>(`${this.base}/leaderboard/breakdown/${userId}`);
   }
 
   // ── Awards ──────────────────────────────────────────────────────────────────
@@ -161,6 +168,15 @@ export class ApiService {
   }
 
   getSeasonEndAwards() {
-    return this.http.get<any>(`${this.base}/stats/season-awards`);
+    return this.http.get<SeasonEndAwardsResponse>(`${this.base}/stats/season-awards`);
+  }
+
+  // ── Forecast ──────────────────────────────────────────────────────────────
+  getLeaderboardForecast(matchId: string) {
+    return this.http.get<ForecastResponse>(`${this.base}/forecast/${matchId}`);
+  }
+
+  getScenarios(matchId: string) {
+    return this.http.get<ScenariosResponse>(`${this.base}/forecast/${matchId}/scenarios`);
   }
 }

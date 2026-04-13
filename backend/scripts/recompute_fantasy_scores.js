@@ -10,7 +10,7 @@ const Match = require('../src/models/Match.model');
 const Prediction = require('../src/models/Prediction.model');
 const PlayerPerformance = require('../src/models/PlayerPerformance.model');
 const FantasyTeam = require('../src/models/FantasyTeam.model');
-const { calculateFantasyPoints, applyMultiplier } = require('../src/services/scoring.service');
+const { calculateFantasyPoints, applyMultiplier, buildFantasyPointsBreakdown } = require('../src/services/scoring.service');
 
 const args = new Set(process.argv.slice(2));
 const shouldApply = args.has('--apply');
@@ -55,14 +55,16 @@ async function main() {
     const player = playersById.get(String(perf.playerId));
     if (!player) continue;
 
-    const recomputed = calculateFantasyPoints(perf, player.role);
+    const breakdown = buildFantasyPointsBreakdown(perf, player.role);
+    const recomputed = breakdown.total;
     recomputedPointsByMatchPlayer.set(`${perf.matchId}:${perf.playerId}`, recomputed);
 
-    if (recomputed !== perf.fantasyPoints) {
+    const needsUpdate = recomputed !== perf.fantasyPoints || !perf.scoreBreakdown;
+    if (needsUpdate) {
       perfUpdates.push({
         updateOne: {
           filter: { _id: perf._id },
-          update: { $set: { fantasyPoints: recomputed } },
+          update: { $set: { fantasyPoints: recomputed, scoreBreakdown: breakdown } },
         },
       });
 
@@ -73,6 +75,7 @@ async function main() {
           matchId: String(perf.matchId),
           stored: perf.fantasyPoints,
           recomputed,
+          breakdownUpdated: !perf.scoreBreakdown,
         });
       }
     }

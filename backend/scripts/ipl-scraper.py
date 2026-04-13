@@ -14,6 +14,11 @@ import json
 import time
 import random
 import requests
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
@@ -34,9 +39,11 @@ WA_URL = "https://wa.dotsai.cloud/api/send/text"
 WA_MEDIA_URL = "https://wa.dotsai.cloud/api/send/media"
 WA_TOKEN = os.environ.get('WA_TOKEN', os.environ.get('WHATSAPP_API_TOKEN', 'SET_WA_TOKEN_IN_ENV'))
 APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://ipl-fantasy-live.vercel.app').rstrip('/')
+# PostgreSQL GIF cache (multi-project shared pool)
+PG_DSN = os.environ.get('PG_DSN', 'postgresql://dotsai:6a0NxO3mjlcKrA7iYw7aVDnX7kyN9@127.0.0.1:5432/dotsai')
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 IST = timezone(timedelta(hours=5, minutes=30))
-DM_INTERVAL_MIN = 3
+DM_INTERVAL_MIN = 15
 STATE_FILE = "/opt/services/ipl-scraper/state.json"
 
 # WhatsApp Group — Saanp Premier League
@@ -64,26 +71,28 @@ def calculate_fantasy_points(perf, role):
     wk = perf.get("wickets", 0)
     overs = perf.get("oversBowled", 0)
 
-    # Batting
-    pts += runs * 1.0
-    pts += perf.get("fours", 0) * 1.0
-    pts += perf.get("sixes", 0) * 2.0
-    if runs >= 100: pts += 16.0
-    elif runs >= 50: pts += 8.0
-    if perf.get("didBat") and runs == 0 and perf.get("isDismissed") and role != "BOWL":
-        pts -= 2.0
-    if bf >= 10:
-        sr = (runs / bf) * 100
-        if sr > 170: pts += 6.0
-        elif sr > 150: pts += 4.0
-        elif sr >= 130: pts += 2.0
-        elif 60 <= sr <= 70: pts -= 2.0
-        elif 50 <= sr < 60: pts -= 4.0
-        elif sr < 50: pts -= 6.0
+    # Batting (only if player batted — matches Node.js scoring.service.js)
+    if perf.get("didBat"):
+        pts += runs * 1.0
+        pts += perf.get("fours", 0) * 1.0
+        pts += perf.get("sixes", 0) * 2.0
+        if runs >= 100: pts += 16.0
+        elif runs >= 50: pts += 8.0
+        if runs == 0 and perf.get("isDismissed") and role != "BOWL":
+            pts -= 2.0
+        if bf >= 10:
+            sr = (runs / bf) * 100
+            if sr > 170: pts += 6.0
+            elif sr > 150: pts += 4.0
+            elif sr >= 130: pts += 2.0
+            elif 60 <= sr <= 70: pts -= 2.0
+            elif 50 <= sr < 60: pts -= 4.0
+            elif sr < 50: pts -= 6.0
 
     # Bowling
     pts += wk * 25.0
     pts += perf.get("lbwBowledWickets", 0) * 8.0
+    pts += perf.get("dotBalls", 0) * 2.0
     pts += perf.get("maidens", 0) * 12.0
     if wk >= 5: pts += 16.0
     elif wk >= 4: pts += 8.0
@@ -138,10 +147,80 @@ def send_dm(phone, message):
         return False
 
 
-def send_group(message):
+MENTION_NAME_OVERRIDES = {
+    "Daddy Cool": "Avdhesh",
+    "VVS": "Vaishali",
+    "Jayesh sharma": "Jayesh",
+    "Shubham Sharma": "Shubham",
+    "Arpit Garg": "Arpit",
+    "Meet": "Meet",
+    "Prashast": "Prashast",
+    "Nishant": "Nishant",
+    "Navneet": "Navneet",
+    "Rahul Sharma": "Rahul",
+    "Shashwat": "Shashwat",
+    "Kurja": "Kurja",
+    "IKCyas": "IKCyas",
+    "Infinity Max": "InfinityMax",
+}
+
+
+def normalize_phone(phone):
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    return digits if len(digits) >= 10 else None
+
+
+def mention_label(name):
+    label = MENTION_NAME_OVERRIDES.get(name, (name or "Player").strip().split()[0] or "Player")
+    clean = re.sub(r"[^A-Za-z0-9_]+", "", label)
+    return f"@{clean or 'Player'}"
+
+
+def mention_entry(name, phone):
+    """Returns (@phone_for_body, phone_for_mentions_array) when phone available.
+    Gateway needs @phonenumber in the message body to actually ping."""
+    normalized = normalize_phone(phone)
+    if normalized:
+        return f"@{normalized}", normalized
+    # No phone — fall back to display name (won't ping but at least readable)
+    label = MENTION_NAME_OVERRIDES.get(name, (name or "Player").strip().split()[0] or "Player")
+    return label, None
+
+
+def render_user_refs(users):
+    labels = []
+    mentions = []
+    for user in users or []:
+        label, phone = mention_entry(user.get("name"), user.get("phone"))
+        labels.append(label)
+        if phone:
+            mentions.append(phone)
+    if not labels:
+        return "", []
+    return ", ".join(labels), dedupe_mentions(mentions)
+
+
+def dedupe_mentions(mentions):
+    seen = set()
+    ordered = []
+    for phone in mentions or []:
+        normalized = normalize_phone(phone)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def send_group(message, mentions=None):
     """Send message to Saanp Premier League group."""
     try:
-        r = requests.post(WA_URL, json={"to": SPL_GROUP_JID, "message": message},
+        payload = {"to": SPL_GROUP_JID, "message": message}
+        mention_list = dedupe_mentions(mentions)
+        if mention_list:
+            payload["mentions"] = mention_list
+
+        r = requests.post(WA_URL, json=payload,
                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                          timeout=10)
         if r.ok:
@@ -154,20 +233,27 @@ def send_group(message):
         return False
 
 
-def send_group_gif(gif_url, caption=""):
-    """Send a GIF/image to the group with optional caption. Falls back to text if GIF fails."""
+def send_group_gif(gif_url, caption="", mentions=None):
+    """Send media to the group with optional caption. Falls back to text if media fails."""
     try:
-        # Try as image first (works better with .gif URLs)
+        mention_list = dedupe_mentions(mentions)
+        # Try as video first so the group sees an actual moving GIF/video, not a flattened still image.
+        payload = {"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption, "gifPlayback": True}
+        if mention_list:
+            payload["mentions"] = mention_list
         r = requests.post(WA_MEDIA_URL,
-                         json={"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption},
+                         json=payload,
                          headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                          timeout=15)
         if r.ok:
             print(f"    Group GIF sent")
             return True
-        # Retry as video
+        # Retry as image if the gateway rejects the media as video.
+        payload = {"to": SPL_GROUP_JID, "type": "image", "url": gif_url, "caption": caption}
+        if mention_list:
+            payload["mentions"] = mention_list
         r2 = requests.post(WA_MEDIA_URL,
-                          json={"to": SPL_GROUP_JID, "type": "video", "url": gif_url, "caption": caption},
+                          json=payload,
                           headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
                           timeout=15)
         if r2.ok:
@@ -175,11 +261,11 @@ def send_group_gif(gif_url, caption=""):
             return True
         print(f"    Group GIF FAILED: {r.status_code} — falling back to text")
         # Fallback: send as plain text
-        send_group(caption)
+        send_group(caption, mentions=mention_list)
         return False
     except Exception as e:
         print(f"    Group GIF error: {e} — falling back to text")
-        send_group(caption)
+        send_group(caption, mentions=mentions)
         return False
 
 
@@ -189,60 +275,445 @@ AVATAR_BASE_URL = "https://dotsai.in/spl-avatars"
 
 GIFS = {
     "celebration": [
-        "https://media3.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.gif",
-        "https://media4.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.gif",
-        "https://media0.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.gif",
-        "https://media3.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.gif",
-        "https://media0.giphy.com/media/qia2rxxWQ6B01pOf10/giphy.gif",
-        "https://media1.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.gif",
+        "https://media.giphy.com/media/1rdLseLhDMiBnumJzM/giphy.mp4",
+        "https://media.giphy.com/media/pCJWxPzAbGHHIWHoep/giphy.mp4",
+        "https://media.giphy.com/media/E5GdvnFmutdwQhZc22/giphy.mp4",
+        "https://media.giphy.com/media/SqoTSUxfRR1PPTXMPv/giphy.mp4",
+        "https://media.giphy.com/media/qia2rxxWQ6B01pOf10/giphy.mp4",
+        "https://media.giphy.com/media/5wgdVaOwGyWzNxoYKD/giphy.mp4",
+        "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.mp4",  # the rock clapping
+        "https://media.giphy.com/media/l4pTfx2qLszoacZRS/giphy.mp4",  # leo dicaprio toast
     ],
     "wicket": [
-        "https://media4.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.gif",
-        "https://media1.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.gif",
-        "https://media3.giphy.com/media/THIImhwN2fV2q8EOvq/giphy.gif",
-        "https://media2.giphy.com/media/xB68elnmZURlOlOUZ1/giphy.gif",
-        "https://media4.giphy.com/media/2CUJFvoRXDrUeG1mOS/giphy.gif",
+        "https://media.giphy.com/media/UMzYGpUkzuwMlT2mXL/giphy.mp4",
+        "https://media.giphy.com/media/xW66oX2jHcCpp49uWs/giphy.mp4",
+        "https://media.giphy.com/media/THIImhwN2fV2q8EOvq/giphy.mp4",
+        "https://media.giphy.com/media/xB68elnmZURlOlOUZ1/giphy.mp4",
+        "https://media.giphy.com/media/2CUJFvoRXDrUeG1mOS/giphy.mp4",
+        "https://media.giphy.com/media/ko8zXh01jZPE4/giphy.mp4",
     ],
     "drama": [
-        "https://media1.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.gif",
-        "https://media0.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.gif",
-        "https://media3.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.gif",
-        "https://media1.giphy.com/media/evVKsrjZEqVVWvE2VR/giphy.gif",
-        "https://media1.giphy.com/media/ksioubEKq0ufcB4z1S/giphy.gif",
+        "https://media.giphy.com/media/e8K0OMxMIZ5j5AxyiA/giphy.mp4",
+        "https://media.giphy.com/media/ItOC6bcYSUE3QdQPwU/giphy.mp4",
+        "https://media.giphy.com/media/NvlwExVCntLTqXVg7X/giphy.mp4",
+        "https://media.giphy.com/media/evVKsrjZEqVVWvE2VR/giphy.mp4",
+        "https://media.giphy.com/media/ksioubEKq0ufcB4z1S/giphy.mp4",
+        "https://media.giphy.com/media/tyqcJoNjNv0Fq/giphy.mp4",
+        "https://media.giphy.com/media/uWzS6ZLs0AaVOJlgRd/giphy.mp4",
+    ],
+    "hype": [
+        "https://media.giphy.com/media/b1o4elHO8o03C/giphy.mp4",
+        "https://media.giphy.com/media/xUySTUZ8A2RJBQitwI/giphy.mp4",
+        "https://media.giphy.com/media/11sBLVxIRvnAwt/giphy.mp4",
+    ]
+}
+
+# All GIFs in one flat pool for static fallback
+ALL_GIFS = []
+for cat in GIFS.values():
+    ALL_GIFS.extend(cat)
+
+# ─── Giphy API (dynamic, anti-repeat) ───
+GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "")
+GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
+
+# Per-category search pools — specific enough to skip the top-5 viral repeats
+GIPHY_CATEGORY_QUERIES = {
+    "celebration": [
+        "victory dance party", "goal scored reaction", "yes pumped winning",
+        "touchdown celebration nfl", "championship win reaction", "excited cheering crowd",
+        "happy dance winning team", "fist pump success",
+    ],
+    "wicket": [
+        "it's over done finished", "mic drop walk away", "savage dismissal",
+        "you're out eliminated", "send off celebration", "bowled out stump",
+    ],
+    "drama": [
+        "shocked face reaction", "this is fine everything fine", "nervous sweating",
+        "mind blown explosion", "oh no disaster face", "panic button press",
+        "watching nervously hide", "covering eyes scared",
+    ],
+    "hype": [
+        "lets go hyped crowd", "pumped energy workout", "fire motivation",
+        "crowd goes wild", "goat greatest all time", "on fire unstoppable",
     ],
 }
 
-# All GIFs in one flat pool for truly random picks
-ALL_GIFS = GIFS["celebration"] + GIFS["wicket"] + GIFS["drama"]
+# Per-persona search pools — matched by first name in user_name
+# Non-cricket references, tied to their actual vibe
+GIPHY_PERSONA_QUERIES = {
+    # Prashast — F1 fan, races, speed, podium drama
+    "prashast": [
+        "formula 1 overtake", "f1 podium champagne", "pit crew fast",
+        "race car speed", "f1 lights out start", "lewis hamilton fist pump",
+    ],
+    # Vaishali — Taylor Swift stan, Eras tour era
+    "vaishali": [
+        "taylor swift surprised award", "taylor swift era tour dance",
+        "swifties reaction concert", "taylor swift shake it off",
+        "taylor swift winning speech", "taylor swift shocked happy",
+    ],
+    # Avdhesh — Punjabi music, Ammy Virk, desi energy
+    "avdhesh": [
+        "bhangra celebration dance", "punjabi dhol beat",
+        "desi wedding dance", "punjabi singer stage",
+        "tumbi dance folk", "desi celebration hands up",
+    ],
+    # Shubham — Zakir Khan comedy, storytelling, relatable writing humour
+    "shubham": [
+        "stand up comedy crowd laughing", "storyteller on stage",
+        "mic drop comedy", "writer typing inspired",
+        "comedian pointing relatable", "awkward funny situation",
+    ],
+    # Jayesh — Rohit Sharma fan (sixer king, chill Hitman energy)
+    "jayesh": [
+        "casual sixer chill", "effortless six hit",
+        "captain cool swagger", "batting hero moment",
+        "nonchalant batter walk", "slow motion six cricketer",
+    ],
+    # Arpit — Virat Kohli fan (aggressive, passionate, fired up)
+    "arpit": [
+        "aggressive celebration fist pump", "fired up player roar",
+        "passionate player intense", "run celebration screaming",
+        "battle cry victory sport", "never give up comeback",
+    ],
+    # Mannu — full of massive unstoppable energy
+    "mannu": [
+        "too much energy kid", "excited jumping up down",
+        "hyper person bouncing", "cannot contain excitement",
+        "over enthusiastic reaction", "kid in candy store excited",
+    ],
+    # Navneet — same vibe as Mannu
+    "navneet": [
+        "too much energy kid", "excited jumping up down",
+        "hyper person bouncing", "cannot contain excitement",
+    ],
+    # Nishant — professional, composed, office mode
+    "nishant": [
+        "professional nod suits", "harvey specter confident walk",
+        "office win smug smile", "michael scott celebration office",
+        "suit up confident", "boardroom approval nod",
+    ],
+}
 
 
-def pick_media(category, user_id=None):
+
+def _pg_conn():
+    """Get a PostgreSQL connection, or None if psycopg2 unavailable."""
+    if not psycopg2 or not PG_DSN:
+        return None
+    try:
+        return psycopg2.connect(PG_DSN, connect_timeout=3)
+    except Exception as e:
+        print(f"    PG connect error: {e}")
+        return None
+
+
+def _pg_get_unseen(query_tag, seen_ids, limit=10):
     """
-    Pick media for a milestone/takeover — returns (url, is_avatar).
-    Mix strategy:
-      - 40% chance: personalized cartoon avatar (if user_id available)
-      - 30% chance: category-specific GIF
-      - 30% chance: random GIF from full pool
-    This keeps it unpredictable — sometimes avatar, sometimes funny GIF.
+    Pull unseen GIFs from the PG cache matching query_tag.
+    Returns list of (giphy_id, mp4_url) tuples.
     """
+    conn = _pg_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if seen_ids:
+                cur.execute(
+                    """SELECT giphy_id, mp4_url FROM gif_cache
+                       WHERE query_tag = %s AND giphy_id != ALL(%s)
+                       ORDER BY used_count ASC, RANDOM() LIMIT %s""",
+                    (query_tag, list(seen_ids), limit)
+                )
+            else:
+                cur.execute(
+                    """SELECT giphy_id, mp4_url FROM gif_cache
+                       WHERE query_tag = %s
+                       ORDER BY used_count ASC, RANDOM() LIMIT %s""",
+                    (query_tag, limit)
+                )
+        return [(row["giphy_id"], row["mp4_url"]) for row in cur.fetchall()]
+    except Exception as e:
+        print(f"    PG read error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def _pg_store(giphy_id, mp4_url, category, query_tag):
+    """Store a newly discovered GIF into PG cache. Silently no-ops on conflict."""
+    conn = _pg_conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO gif_cache (giphy_id, mp4_url, category, query_tag)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (giphy_id) DO NOTHING""",
+                (giphy_id, mp4_url, category, query_tag)
+            )
+        conn.commit()
+    except Exception as e:
+        print(f"    PG store error: {e}")
+    finally:
+        conn.close()
+
+
+def _pg_mark_used(giphy_id):
+    """Increment used_count and update last_used timestamp for rotation fairness."""
+    conn = _pg_conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE gif_cache SET used_count = used_count + 1, last_used = NOW() WHERE giphy_id = %s",
+                (giphy_id,)
+            )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def fetch_giphy(query, state, limit=25, category="celebration"):
+    """
+    Fetch a fresh, unseen mp4 GIF. Two-layer strategy:
+      1. Giphy API  → stores every new result in PG cache
+      2. PG cache   → fallback when API rate-limited or fails
+    Dedup tracked via state['seen_giphy_ids'] (rolling window of 500).
+    """
+    seen_ids = state.setdefault("seen_giphy_ids", [])
+    seen_set = set(seen_ids)
+
+    def _pick_and_record(giphy_id, mp4_url):
+        seen_ids.append(giphy_id)
+        if len(seen_ids) > 500:
+            state["seen_giphy_ids"] = seen_ids[-400:]
+        _pg_mark_used(giphy_id)
+        return mp4_url
+
+    # ── Layer 1: Giphy API ──
+    if GIPHY_API_KEY:
+        try:
+            offset = random.randint(5, 200)
+            r = requests.get(GIPHY_SEARCH_URL, params={
+                "api_key": GIPHY_API_KEY,
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+                "rating": "pg-13",
+                "lang": "en",
+            }, timeout=8)
+
+            if r.ok:
+                data = r.json().get("data", [])
+                random.shuffle(data)
+                for gif in data:
+                    gif_id = gif.get("id", "")
+                    mp4_url = (gif.get("images", {}).get("original_mp4", {}).get("mp4", "")
+                               or gif.get("images", {}).get("fixed_height_small", {}).get("mp4", ""))
+                    if not mp4_url:
+                        continue
+                    # Always store in PG (builds up the shared pool over time)
+                    _pg_store(gif_id, mp4_url, category, query)
+                    if gif_id in seen_set:
+                        continue
+                    return _pick_and_record(gif_id, mp4_url)
+
+                # All from API already seen — clear half and retry from PG
+                state["seen_giphy_ids"] = seen_ids[len(seen_ids)//2:]
+                seen_set = set(state["seen_giphy_ids"])
+            else:
+                print(f"    Giphy API rate-limited ({r.status_code}) — falling back to PG cache")
+        except Exception as e:
+            print(f"    Giphy fetch error ({query}): {e}")
+
+    # ── Layer 2: PG cache fallback ──
+    cached = _pg_get_unseen(query, seen_set, limit=10)
+    if cached:
+        giphy_id, mp4_url = random.choice(cached)
+        print(f"    Using PG cache for '{query}' → {giphy_id[:8]}...")
+        return _pick_and_record(giphy_id, mp4_url)
+
+    return None
+
+
+
+
+def get_contextual_query(event_type, context=None):
+    """
+    Derive a sentiment-specific Giphy search query from live match data.
+    Takes the actual match numbers and returns a pinpoint search term
+    instead of a bland category name — makes every GIF feel earned.
+    """
+    ctx = context or {}
+
+    # ─ Batting ───
+    if event_type == "fifty":
+        sr = ctx.get("sr", 0)
+        sixes = ctx.get("sixes", 0)
+        if sr > 180:
+            return random.choice(["violent hitting slog blitz", "blazing batting carnage boundary"])
+        elif sr > 140 or sixes >= 3:
+            return random.choice(["aggressive batter pumped up", "big hitting fist pump"])
+        elif sr < 100:
+            return random.choice(["gritty innings relief exhausted", "hard fought milestone relief"])
+        return random.choice(["half century raise bat milestone", "fifty cricket celebration"])
+
+    if event_type == "century":
+        sr = ctx.get("sr", 0)
+        if sr > 160:
+            return random.choice(["fastest hundred blitz speed", "century carnage batting legend"])
+        return random.choice(["century arms open emotional crowd", "hundred milestone standing ovation"])
+
+    if event_type == "150":
+        return random.choice(["unstoppable power hitting destruction", "batting god record breaking"])
+
+    # ─ Wicket types ───
+    if event_type == "wicket_bowled":
+        return random.choice(["clean bowled stumps flying shocked", "bowled through gate stump cartwheels"])
+
+    if event_type == "wicket_lbw":
+        return random.choice(["trapped lbw finger raised appeal", "out lbw celebration appeal"])
+
+    if event_type == "wicket_caught":
+        sixes = ctx.get("sixes", 0)
+        if sixes >= 2:
+            return random.choice(["caught in deep mistimed slog", "top edge caught boundary"])
+        return random.choice(["brilliant catch slip diving", "taken clean catch celebration"])
+
+    if event_type == "wicket_stumped":
+        return random.choice(["lightning stumping keeper quick hands", "stumped beaten in flight"])
+
+    if event_type == "wicket_runout":
+        return random.choice(["direct hit run out brilliant fielding", "run out backing up shocked"])
+
+    if event_type == "wicket_cheap":
+        runs = ctx.get("runs", 0)
+        if runs == 0:
+            return random.choice(["golden duck walk shame", "duck out first ball shocked"])
+        return random.choice(["cheap dismissal early wicket frustration", "soft dismissal disappointing"])
+
+    # ─ Bowling ───
+    if event_type == "3wkt":
+        eco = ctx.get("economy", 0)
+        if eco < 6:
+            return random.choice(["bowling spell dominant miser", "three wickets cheap on fire"])
+        return random.choice(["wicket burst hat-trick hunt bowling", "bowling attack three wickets surge"])
+
+    if event_type == "fifer":
+        return random.choice(["five wicket haul legendary hall fame", "fifer bowling masterclass destroy"])
+
+    if event_type == "maiden":
+        return random.choice(["maiden over dots squeeze pressure", "miser bowler economy miserly"])
+
+    # ─ Team score in context ───
+    if event_type == "team_score":
+        runs = ctx.get("runs", 0)
+        rr = ctx.get("rr", 0)
+        innings_num = ctx.get("innings_num", 0)
+        wickets = ctx.get("wickets", 0)
+        if runs >= 200:
+            return random.choice(["200 mammoth total batting carnage", "huge score batting celebration"])
+        elif rr > 10 and wickets < 4:
+            return random.choice(["high run rate explosive fireworks", "boundary machine hitting carnage"])
+        elif innings_num == 1 and wickets >= 6:
+            return random.choice(["fighting partnership recovery innings", "tail wagging lower order resist"])
+        return random.choice(["team milestone score building", "steady progress partnership cricket"])
+
+    # ─ Innings break ───
+    if event_type == "innings_break":
+        target = ctx.get("target", 0)
+        if target > 220:
+            return random.choice(["impossible mountain daunting target nervous", "huge target impossible mission"])
+        elif target > 180:
+            return random.choice(["tough target tense nervous chase", "match knife edge tense finish"])
+        elif target < 140:
+            return random.choice(["easy chase comfortable target confident", "low target relief comfortable"])
+        return random.choice(["50 50 match evenly poised balanced", "anything can happen tense balanced"])
+
+    # ─ Leaderboard takeover ───
+    if event_type == "takeover":
+        rank = ctx.get("rank", 3)
+        if rank == 1:
+            return random.choice(["number one top spot king throne", "leaderboard leader champion podium"])
+        elif rank == 2:
+            return random.choice(["hot on heels chasing number one", "second place climbing podium"])
+        return random.choice(["climbing up leaderboard momentum surge", "rising up ranks movement"])
+
+    return random.choice(["celebration victory", "shocked reaction", "fired up energy"])
+
+
+def get_unseen_media(pool, state):
+    """Pick from a static pool with local repeat suppression."""
+    used = state.setdefault("used_media", []) if state is not None else []
+    unseen = [u for u in pool if u not in used]
+    if not unseen:
+        unseen = pool
+        if state is not None:
+            state["used_media"] = state["used_media"][len(state["used_media"])//2:]
+    choice = random.choice(unseen)
+    if state is not None:
+        state["used_media"].append(choice)
+        if len(state["used_media"]) > 200:
+            state["used_media"] = state["used_media"][-100:]
+    return choice
+
+
+def get_persona_media(user_name, state):
+    """Try Giphy first with persona query, return None if no match."""
+    if not user_name:
+        return None
+    name_lower = user_name.lower()
+    for persona, queries in GIPHY_PERSONA_QUERIES.items():
+        if persona in name_lower:
+            return fetch_giphy(random.choice(queries), state)
+    return None
+
+
+def pick_media(category, user_id=None, user_name=None, state=None, query_override=None):
+    """
+    Pick media with Giphy API + anti-repeat suppression.
+    Priority:
+      1. 25% persona GIF via Giphy (name match)
+      2. 25% avatar (user_id)
+      3. 35% Giphy: query_override (contextual) OR category query
+      4. 15% static fallback pool
+    """
+    if state is None:
+        state = {}
     roll = random.random()
 
-    # 40% avatar (only if user_id exists)
-    if user_id and roll < 0.4:
+    if user_name and roll < 0.25:
+        url = get_persona_media(user_name, state)
+        if url:
+            return url, False
+
+    if user_id and roll < 0.5:
         return f"{AVATAR_BASE_URL}/{user_id}.png", True
 
-    # 30% category-specific
-    if roll < 0.7:
-        pool = GIFS.get(category, ALL_GIFS)
-        return random.choice(pool), False
+    if roll < 0.85:
+        # Use contextual query if available, else fall back to category pool
+        if query_override:
+            url = fetch_giphy(query_override, state)
+            if url:
+                return url, False
+        queries = GIPHY_CATEGORY_QUERIES.get(category, GIPHY_CATEGORY_QUERIES["celebration"])
+        url = fetch_giphy(random.choice(queries), state)
+        if url:
+            return url, False
 
-    # 30% any random GIF
-    return random.choice(ALL_GIFS), False
+    pool = GIFS.get(category, ALL_GIFS)
+    return get_unseen_media(pool, state), False
 
 
-def send_milestone_media(msg, category="celebration", user_id=None):
-    """Send a milestone message with mixed media — GIF, avatar, or text fallback."""
-    url, is_avatar = pick_media(category, user_id)
+def send_milestone_media(msg, category="celebration", user_id=None, user_name=None, state=None, query_override=None):
+    """Send milestone message with Giphy-powered media, falls back to static then text."""
+    url, is_avatar = pick_media(category, user_id, user_name, state, query_override)
     send_group_gif(url, msg)
 
 
@@ -286,7 +757,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f4a5 *FIFTY!* {player_name} \U0001f525\n\n"
                            f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("fifty", {"sr": sr, "sixes": sixes})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
             # Century (100)
@@ -298,7 +770,8 @@ def detect_milestones(db, match, scorecard, state):
                            f"{runs_scored} ({balls}) | {fours} fours, {sixes} sixes | SR {sr}\n\n"
                            f"WHAT. A. KNOCK. \U0001f525\U0001f525\U0001f525\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("century", {"sr": sr})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
             # 150 (special)
@@ -308,7 +781,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f92f *150 UP!* {player_name} is UNSTOPPABLE!\n\n"
                            f"{runs_scored} ({balls}) | {fours}x4, {sixes}x6\n\n"
                            f"This is MADNESS \U0001f525\U0001f525\U0001f525")
-                    send_milestone_media(msg, "celebration")
+                    q = get_contextual_query("150")
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Bowling milestones ──
@@ -326,7 +800,8 @@ def detect_milestones(db, match, scorecard, state):
                     msg = (f"\U0001f3af *{wk} WICKETS!* {bowler_name} is on fire!\n\n"
                            f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("3wkt", {"economy": econ})
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
             # 5-wicket haul (FIFER!)
@@ -337,7 +812,8 @@ def detect_milestones(db, match, scorecard, state):
                            f"{wk}/{bowl_runs} ({bowl_overs} ov) | Econ {econ}\n\n"
                            f"ABSOLUTE DESTRUCTION! \U0001f4a3\n\n"
                            f"\U0001f4ca {' | '.join(innings_summary)}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("fifer")
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
             # Maiden over
@@ -347,17 +823,20 @@ def detect_milestones(db, match, scorecard, state):
                 if key not in sent_milestones:
                     msg = (f"\U0001f6e1\ufe0f *MAIDEN OVER!* {bowler_name}\n\n"
                            f"Dot dot dot dot dot dot! \U0001f525 Economy: {econ}")
-                    send_milestone_media(msg, "wicket")
+                    q = get_contextual_query("maiden")
+                    send_milestone_media(msg, "wicket", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Team score milestones ──
-        for target in [50, 100, 150, 200, 250, 300]:
-            if runs >= target:
-                key = f"team_{target}_{bat_team}_{i}"
+        rr = round(runs / overs, 2) if overs > 0 else 0
+        for target_score in [50, 100, 150, 200, 250, 300]:
+            if runs >= target_score:
+                key = f"team_{target_score}_{bat_team}_{i}"
                 if key not in sent_milestones:
-                    msg = (f"\U0001f4ca *{target} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
-                           f"{'Run rate: ' + str(round(runs / overs, 2)) + ' RPO' if overs > 0 else ''}")
-                    send_milestone_media(msg, "celebration")
+                    msg = (f"\U0001f4ca *{target_score} UP!* {bat_team} — {runs}/{wickets} ({overs} ov)\n\n"
+                           f"{'Run rate: ' + str(rr) + ' RPO' if overs > 0 else ''}")
+                    q = get_contextual_query("team_score", {"runs": runs, "rr": rr, "innings_num": i, "wickets": wickets})
+                    send_milestone_media(msg, "celebration", state=state, query_override=q)
                     new_milestones.append(key)
 
         # ── Wicket alerts (new dismissals) ──
@@ -367,21 +846,31 @@ def detect_milestones(db, match, scorecard, state):
                 runs_scored = bat.get("runs", 0)
                 balls = bat.get("balls", 0)
                 out_desc = bat.get("out_desc", "")
+                wc = bat.get("wicket_code", "")
                 key = f"out_{player_name}_{i}"
                 if key not in sent_milestones:
-                    # Only alert for batsmen who scored 20+ (meaningful wicket)
                     if runs_scored >= 20:
                         msg = (f"\u274c *WICKET!* {player_name} — {runs_scored} ({balls})\n"
                                f"{out_desc}\n\n"
                                f"\U0001f4ca {' | '.join(innings_summary)}")
-                        send_milestone_media(msg, "wicket")
+                        # Wicket-type-specific query
+                        wc_map = {
+                            "BOWLED":  "wicket_bowled",
+                            "LBW":     "wicket_lbw",
+                            "CAUGHT":  "wicket_caught",
+                            "STUMPED": "wicket_stumped",
+                            "RUNOUT":  "wicket_runout",
+                        }
+                        evt = wc_map.get(wc, "wicket_caught")
+                        q = get_contextual_query(evt, {"sixes": bat.get("sixes", 0), "runs": runs_scored})
+                        send_milestone_media(msg, "wicket", state=state, query_override=q)
                         new_milestones.append(key)
                     elif runs_scored < 5:
-                        # Cheap dismissal — drama!
                         msg = (f"\U0001f480 *OUT!* {player_name} gone for {runs_scored} ({balls})\n"
                                f"{out_desc}\n\n"
                                f"\U0001f4ca {' | '.join(innings_summary)}")
-                        send_milestone_media(msg, "drama")
+                        q = get_contextual_query("wicket_cheap", {"runs": runs_scored})
+                        send_milestone_media(msg, "drama", state=state, query_override=q)
                         new_milestones.append(key)
 
     # ── Innings break ──
@@ -398,7 +887,8 @@ def detect_milestones(db, match, scorecard, state):
                        f"({first_score.get('overs', 0)} ov)\n\n"
                        f"\U0001f3af *Target: {target}*\n\n"
                        f"Second innings coming up! \U0001f525")
-                send_milestone_media(msg, "drama")
+                q = get_contextual_query("innings_break", {"target": target})
+                send_milestone_media(msg, "drama", state=state, query_override=q)
                 new_milestones.append(key)
 
     # Save milestones to state
@@ -497,12 +987,14 @@ def parse_scorecard(data):
     if not data or "scoreCard" not in data:
         return None
 
-    result = {"innings": [], "teams": [], "is_complete": False}
+    result = {"innings": [], "teams": [], "is_complete": False, "result_text": ""}
 
     # Check match status from matchHeader if available
     header = data.get("matchHeader", {})
     match_state = header.get("state", "").lower()
-    result["is_complete"] = match_state == "complete" or "won" in header.get("status", "").lower()
+    status_text = header.get("status", "")
+    result["is_complete"] = match_state == "complete" or "won" in status_text.lower()
+    result["result_text"] = status_text  # e.g. "CSK won by 5 wickets"
 
     for innings in data["scoreCard"]:
         bat_team = innings.get("batTeamDetails", {})
@@ -567,11 +1059,45 @@ def parse_scorecard(data):
                 "runs": bowl.get("runs", 0),
                 "wickets": bowl.get("wickets", 0),
                 "economy": bowl.get("economy", 0),
+                "dots": bowl.get("dots", 0),
             })
 
         result["innings"].append(inn)
 
     return result
+
+
+# ─── Winner Extraction ───
+# Map full team names to abbreviations for prediction matching
+FULL_TEAM_NAMES = {
+    "chennai super kings": "CSK", "mumbai indians": "MI",
+    "royal challengers bengaluru": "RCB", "royal challengers bangalore": "RCB",
+    "kolkata knight riders": "KKR", "rajasthan royals": "RR",
+    "delhi capitals": "DC", "sunrisers hyderabad": "SRH",
+    "punjab kings": "PBKS", "kings xi punjab": "PBKS",
+    "lucknow super giants": "LSG", "gujarat titans": "GT",
+}
+
+def _extract_winner(result_text, match):
+    """Extract winning team abbreviation from result string like 'Chennai Super Kings won by 5 wickets'."""
+    if not result_text:
+        return None
+    rt = result_text.lower()
+    # Check if result mentions "won" or "beat"
+    if "won" not in rt and "beat" not in rt:
+        return None  # Could be a tie/no result
+    # Match against full team names
+    for full_name, abbr in FULL_TEAM_NAMES.items():
+        if full_name in rt:
+            return abbr
+    # Fallback: check if team1 or team2 abbreviation appears
+    t1 = match.get("team1", "")
+    t2 = match.get("team2", "")
+    if t1.lower() in rt:
+        return t1
+    if t2.lower() in rt:
+        return t2
+    return None
 
 
 # ─── MongoDB Integration ───
@@ -581,27 +1107,41 @@ def update_match_scores(db, cb_match_id, scorecard):
     teams = scorecard.get("teams", [])
     team_abbrs = [TEAM_MAP.get(t.lower(), t) for t in teams]
 
-    # Find match in DB — check both team orders
+    # Find match in DB — check both team orders, prefer nearest unlinked match
     match = db.matches.find_one({"cricApiMatchId": str(cb_match_id)})
     if not match and len(team_abbrs) >= 2:
-        # Try all combinations: exact, reversed, regex
-        for t1, t2 in [(team_abbrs[0], team_abbrs[1]), (team_abbrs[1], team_abbrs[0])]:
-            match = db.matches.find_one({"team1": t1, "team2": t2})
-            if match:
-                break
-        if not match:
-            # Regex fallback
-            match = db.matches.find_one({
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        window_start = now - timedelta(hours=12)
+        # Search both team orders, only unlinked matches near today
+        team_filter = {
+            "$or": [
+                {"team1": team_abbrs[0], "team2": team_abbrs[1]},
+                {"team1": team_abbrs[1], "team2": team_abbrs[0]},
+            ],
+            "cricApiMatchId": {"$in": [None, ""]},
+            "scheduledAt": {"$gte": window_start},
+        }
+        candidates = list(db.matches.find(team_filter).sort("scheduledAt", 1).limit(1))
+        if candidates:
+            match = candidates[0]
+        else:
+            # Fallback: try already-linked or any order, still nearest
+            fallback_filter = {
                 "$or": [
                     {"team1": {"$regex": team_abbrs[0], "$options": "i"},
                      "team2": {"$regex": team_abbrs[1], "$options": "i"}},
                     {"team1": {"$regex": team_abbrs[1], "$options": "i"},
                      "team2": {"$regex": team_abbrs[0], "$options": "i"}},
-                ]
-            })
+                ],
+                "scheduledAt": {"$gte": window_start},
+            }
+            candidates = list(db.matches.find(fallback_filter).sort("scheduledAt", 1).limit(1))
+            if candidates:
+                match = candidates[0]
         if match:
             db.matches.update_one({"_id": match["_id"]}, {"$set": {"cricApiMatchId": str(cb_match_id)}})
-            print(f"    Linked {match['team1']} vs {match['team2']} → CB#{cb_match_id}")
+            print(f"    Linked {match['team1']} vs {match['team2']} ({match['scheduledAt']}) → CB#{cb_match_id}")
 
     if not match:
         print(f"    No DB match for CB#{cb_match_id} (teams: {team_abbrs}). Skipping.")
@@ -609,9 +1149,18 @@ def update_match_scores(db, cb_match_id, scorecard):
 
     match_id = match["_id"]
 
-    # Update match status
+    # Update match status + result
+    result_text = scorecard.get("result_text", "")
     if scorecard.get("is_complete"):
-        db.matches.update_one({"_id": match_id}, {"$set": {"status": "completed"}})
+        update_fields = {"status": "completed"}
+        if result_text:
+            update_fields["result"] = result_text
+            # Extract winning team abbreviation from result text
+            # e.g. "Chennai Super Kings won by 5 wickets" → find matching team
+            winner = _extract_winner(result_text, match)
+            if winner:
+                update_fields["winner"] = winner
+        db.matches.update_one({"_id": match_id}, {"$set": update_fields})
     elif any(inn["batting"] for inn in scorecard["innings"]):
         db.matches.update_one({"_id": match_id}, {"$set": {"status": "live"}})
 
@@ -627,6 +1176,13 @@ def update_match_scores(db, cb_match_id, scorecard):
             players_by_name[parts[-1]] = p
         if p.get("cricbuzzId"):
             players_by_cbid[p["cricbuzzId"]] = p
+        # Also index by aliases (handles spelling variants like Suryavanshi/Sooryavanshi)
+        for alias in p.get("aliases", []):
+            alias_clean = alias.strip().lower()
+            players_by_name[alias_clean] = p
+            alias_parts = alias_clean.split()
+            if len(alias_parts) > 1:
+                players_by_name[alias_parts[-1]] = p
 
     def find_player(name=None, cb_id=None):
         if cb_id and cb_id in players_by_cbid:
@@ -655,13 +1211,25 @@ def update_match_scores(db, cb_match_id, scorecard):
                 "runs": 0, "ballsFaced": 0, "fours": 0, "sixes": 0,
                 "isDismissed": False, "didBat": False,
                 "oversBowled": 0, "runsConceded": 0, "wickets": 0, "maidens": 0,
-                "lbwBowledWickets": 0,
+                "lbwBowledWickets": 0, "dotBalls": 0,
                 "catches": 0, "stumpings": 0, "runOutDirect": 0, "runOutIndirect": 0,
             }
         return performances[pid]
 
-    # Build cb_id → player map for fielding lookups
+    # Build cb_id -> player map for fielding lookups.
+    # Two-pass: first scan ALL innings to build the complete map so that
+    # fielders from inning 2 are resolvable during inning 1 dismissals
+    # (e.g. Pant catches during the opposition's batting before LSG bats).
     cb_to_player = {}
+    for _inn in scorecard["innings"]:
+        for _b in _inn["batting"]:
+            _p = find_player(_b["name"], _b.get("cb_id"))
+            if _p and _b.get("cb_id"):
+                cb_to_player[_b["cb_id"]] = _p
+        for _bw in _inn["bowling"]:
+            _p = find_player(_bw["name"], _bw.get("cb_id"))
+            if _p and _bw.get("cb_id"):
+                cb_to_player[_bw["cb_id"]] = _p
 
     for innings in scorecard["innings"]:
         # ── Batting ──
@@ -683,7 +1251,7 @@ def update_match_scores(db, cb_match_id, scorecard):
             # LBW/Bowled bonus
             wc = bat.get("wicket_code", "")
             if wc in ("LBW", "BOWLED") and bat.get("bowler_id"):
-                bowler = find_player(cb_id=bat["bowler_id"])
+                bowler = cb_to_player.get(bat["bowler_id"]) or find_player(cb_id=bat["bowler_id"])
                 if not bowler:
                     # Try to find bowler from bowling data
                     for inn2 in scorecard["innings"]:
@@ -738,6 +1306,7 @@ def update_match_scores(db, cb_match_id, scorecard):
             perf["runsConceded"] = bowl["runs"]
             perf["wickets"] = bowl["wickets"]
             perf["maidens"] = bowl["maidens"]
+            perf["dotBalls"] = bowl.get("dots", 0)
 
     if not performances:
         print(f"    No performances mapped for {match.get('team1')} vs {match.get('team2')}")
@@ -786,7 +1355,33 @@ def update_match_scores(db, cb_match_id, scorecard):
             {"$set": perf}, upsert=True
         )
 
-    # Recalculate fantasy teams
+    # Evaluate predictions if match is completed
+    # Re-fetch match to get updated result/winner fields
+    match = db.matches.find_one({"_id": match_id})
+    prediction_bonus = {}  # userId → bonus points
+    if match.get("status") == "completed" and match.get("winner"):
+        winner = match["winner"]
+        preds = list(db.predictions.find({"matchId": match_id}))
+        for pred in preds:
+            is_correct = pred.get("predictedWinner") == winner
+            bonus = 25 if is_correct else 0
+            # Super-over prediction bonus
+            if pred.get("predictionType") == "superover":
+                result_text = match.get("result", "")
+                has_super_over = "super over" in result_text.lower() if result_text else False
+                is_correct = has_super_over
+                bonus = 80 if is_correct else 0
+            db.predictions.update_one(
+                {"_id": pred["_id"]},
+                {"$set": {"isCorrect": is_correct, "bonusPoints": bonus}}
+            )
+            uid = str(pred["userId"])
+            prediction_bonus[uid] = prediction_bonus.get(uid, 0) + bonus
+        if preds:
+            correct_count = sum(1 for p in preds if p.get("predictedWinner") == winner)
+            print(f"    Predictions: {len(preds)} evaluated, {correct_count} correct ({winner} won)")
+
+    # Recalculate fantasy teams (includes prediction bonus for completed matches)
     teams_cursor = list(db.fantasyteams.find({"matchId": match_id}))
     league = db.leagues.find_one({"season": "IPL_2026"}, {"members": 1})
     member_id_set = {str(uid) for uid in league.get("members", [])} if league else set()
@@ -798,6 +1393,9 @@ def update_match_scores(db, cb_match_id, scorecard):
             is_cap = str(team.get("captain")) == str(p_id)
             is_vc = str(team.get("viceCaptain")) == str(p_id)
             total += apply_multiplier(base, is_cap, is_vc)
+        # Add prediction bonus (idempotent: always recalculated from prediction records)
+        uid = str(team.get("userId"))
+        total += prediction_bonus.get(uid, 0)
         total = round(total, 1)
         db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": {"totalPoints": total}})
 
@@ -815,6 +1413,185 @@ def update_match_scores(db, cb_match_id, scorecard):
     return {"match": match, "team_scores": team_scores}
 
 
+# ─── ESPN Dot Ball Integration ───
+# Cricbuzz scorecard never provides dot ball data (dots field always 0).
+# ESPN's public API reliably returns per-bowler dot ball counts.
+# This runs once per completed match, fetching dots and patching performances.
+
+ESPN_API_URL = "https://site.api.espn.com/apis/site/v2/sports/cricket/8048"
+_espn_schedule = None  # cached schedule
+
+
+def _get_espn_schedule():
+    """Fetch IPL 2026 schedule from ESPN (cached per scraper run)."""
+    global _espn_schedule
+    if _espn_schedule is not None:
+        return _espn_schedule
+    try:
+        r = requests.get(f"{ESPN_API_URL}/scoreboard?dates=2026&limit=100",
+                         headers=HEADERS, timeout=15)
+        if r.status_code == 200:
+            events = r.json().get("events", [])
+            _espn_schedule = []
+            for ev in events:
+                comps = ev.get("competitions", [{}])
+                teams = [c.get("team", {}).get("abbreviation", "")
+                         for c in comps[0].get("competitors", [])] if comps else []
+                _espn_schedule.append({
+                    "espn_id": ev.get("id"),
+                    "teams": teams,
+                    "date": ev.get("date", "")[:10],
+                })
+            return _espn_schedule
+    except Exception as e:
+        print(f"    ESPN schedule fetch error: {e}")
+    _espn_schedule = []
+    return _espn_schedule
+
+
+def _find_espn_event_id(match):
+    """Find ESPN event ID for a match by matching teams + date."""
+    # If already stored, use it
+    if match.get("espnMatchId"):
+        return match["espnMatchId"]
+
+    schedule = _get_espn_schedule()
+    t1 = match.get("team1", "").upper()
+    t2 = match.get("team2", "").upper()
+    match_date = match.get("scheduledAt")
+    if match_date:
+        match_date_str = match_date.strftime("%Y-%m-%d") if hasattr(match_date, 'strftime') else str(match_date)[:10]
+    else:
+        match_date_str = ""
+
+    for ev in schedule:
+        ev_teams = set(t.upper() for t in ev["teams"])
+        if t1 in ev_teams and t2 in ev_teams:
+            return ev["espn_id"]
+        # Also match by date if teams don't match exactly (abbreviation differences)
+        if match_date_str and ev["date"] == match_date_str and len(ev_teams & {t1, t2}) >= 1:
+            return ev["espn_id"]
+
+    return None
+
+
+def update_dot_balls_from_espn(db, match, players_by_name):
+    """
+    Fetch dot balls from ESPN API and patch PlayerPerformance records.
+    Only runs for completed matches that haven't been patched yet.
+    Returns number of records updated.
+    """
+    match_id = match["_id"]
+
+    # Skip if already fetched
+    if match.get("espnMatchId"):
+        return 0
+
+    # Only for completed matches
+    if match.get("status") != "completed":
+        return 0
+
+    # Check if any bowler already has dotBalls > 0 (already patched)
+    has_dots = db.playerperformances.find_one({
+        "matchId": match_id, "oversBowled": {"$gt": 0}, "dotBalls": {"$gt": 0}
+    })
+    if has_dots:
+        return 0
+
+    espn_id = _find_espn_event_id(match)
+    if not espn_id:
+        print(f"    No ESPN event found for {match.get('team1')} vs {match.get('team2')}")
+        return 0
+
+    print(f"    Fetching dot balls from ESPN (event {espn_id})...")
+    try:
+        r = requests.get(f"{ESPN_API_URL}/summary?event={espn_id}",
+                         headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            print(f"    ESPN API returned {r.status_code}")
+            return 0
+
+        data = r.json()
+        dots_by_bowler = {}
+
+        for team in data.get("rosters", []):
+            for player in team.get("roster", []):
+                name = player.get("athlete", {}).get("displayName", "")
+                for ls_period in player.get("linescores", []):
+                    for ls in ls_period.get("linescores", []):
+                        for cat in ls.get("statistics", {}).get("categories", []):
+                            stats = {s["name"]: s.get("value", 0) for s in cat.get("stats", [])}
+                            if stats.get("overs", 0) > 0 and stats.get("dots", 0) > 0:
+                                dots_by_bowler[name] = dots_by_bowler.get(name, 0) + stats["dots"]
+
+        if not dots_by_bowler:
+            print(f"    No dot ball data from ESPN")
+            return 0
+
+        updated = 0
+        for bowler_name, dots in dots_by_bowler.items():
+            clean = bowler_name.strip().lower()
+            player = players_by_name.get(clean)
+            if not player:
+                last = clean.split()[-1] if clean else ""
+                player = players_by_name.get(last)
+            if not player:
+                for key, p in players_by_name.items():
+                    if clean.split()[-1] in key:
+                        player = p
+                        break
+            if not player:
+                continue
+
+            result = db.playerperformances.update_one(
+                {"playerId": player["_id"], "matchId": match_id, "oversBowled": {"$gt": 0}},
+                {"$set": {"dotBalls": dots}}
+            )
+            if result.modified_count > 0:
+                updated += 1
+
+        # Only mark espnMatchId as done when dots were actually written.
+        # If we save it before confirming writes, it blocks all future retries silently.
+        if updated > 0:
+            db.matches.update_one({"_id": match_id}, {"$set": {"espnMatchId": str(espn_id)}})
+
+        if updated > 0:
+            # Recalculate fantasy points for affected bowlers
+            perfs = list(db.playerperformances.find({"matchId": match_id}))
+            players_list = list(db.players.find({}))
+            pid_to_player = {str(p["_id"]): p for p in players_list}
+            player_points = {}
+
+            for perf in perfs:
+                pid = str(perf["playerId"])
+                p = pid_to_player.get(pid)
+                role = p.get("role", "batsman") if p else "batsman"
+                pts = calculate_fantasy_points(perf, role)
+                if pts != perf.get("fantasyPoints", 0):
+                    db.playerperformances.update_one(
+                        {"_id": perf["_id"]}, {"$set": {"fantasyPoints": pts}}
+                    )
+                player_points[pid] = pts
+
+            # Recalculate team totals
+            for team in db.fantasyteams.find({"matchId": match_id}):
+                total = 0.0
+                for p_id in team.get("players", []):
+                    base = player_points.get(str(p_id), 0)
+                    is_cap = str(team.get("captain")) == str(p_id)
+                    is_vc = str(team.get("viceCaptain")) == str(p_id)
+                    total += apply_multiplier(base, is_cap, is_vc)
+                db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": {"totalPoints": round(total, 1)}})
+
+            print(f"    ESPN dot balls: {updated} bowlers patched, points recalculated")
+
+        return updated
+
+    except Exception as e:
+        print(f"    ESPN dot ball error: {e}")
+        return 0
+
+
 def detect_takeovers(db, match, team_scores, state):
     """
     Compare current leaderboard with previous snapshot.
@@ -829,7 +1606,12 @@ def detect_takeovers(db, match, team_scores, state):
     # Build current ranking: {userName: {rank, points, userId}}
     current = {}
     for i, ts in enumerate(team_scores):
-        current[ts["userName"]] = {"rank": i + 1, "points": ts["totalPoints"], "userId": ts.get("userId", "")}
+        current[ts["userName"]] = {
+            "rank": i + 1,
+            "points": ts["totalPoints"],
+            "userId": ts.get("userId", ""),
+            "phone": ts.get("phone", ""),
+        }
 
     # Load previous ranking from state
     prev = state.get("last_dm", {}).get(rankings_key, {})
@@ -864,6 +1646,7 @@ def detect_takeovers(db, match, team_scores, state):
                     takeovers.append({
                         "name": name,
                         "userId": cur_info.get("userId", ""),
+                        "phone": cur_info.get("phone", ""),
                         "prev_rank": prev_rank,
                         "cur_rank": cur_rank,
                         "points_gained": points_gained,
@@ -911,15 +1694,14 @@ def detect_takeovers(db, match, team_scores, state):
                f"\U0001f525 The race is ON!")
 
         # Tiered media based on rank reached:
-        #   1st-2nd: solid celebration GIF
-        #   3rd: normal random GIF
         rank = to["cur_rank"]
-        if rank <= 2:
-            send_group_gif(random.choice(GIFS["celebration"]), msg)
-        elif rank == 3:
-            send_group_gif(random.choice(ALL_GIFS), msg)
+        takeover_mentions = dedupe_mentions([to.get("phone")])
+        if rank <= 3:
+            cat = "celebration" if rank <= 2 else "hype"
+            url, _ = pick_media(cat, user_id=to.get("userId"), user_name=to["name"], state=state)
+            send_group_gif(url, msg, mentions=takeover_mentions)
         else:
-            send_group(msg)
+            send_group(msg, mentions=takeover_mentions)
         sent_takeovers.add(dedup)
         print(f"    Takeover: {to['name']} #{to['prev_rank']}->{to['cur_rank']} (overtook {overtaken_names})")
 
@@ -927,6 +1709,137 @@ def detect_takeovers(db, match, team_scores, state):
     state.setdefault("last_dm", {})[rankings_key] = current
     if sent_takeovers:
         state["last_dm"][takeover_dedup_key] = list(sent_takeovers)
+
+
+# ─── What-It-Takes: dynamic per-update insights ───
+def compute_what_it_takes(db, match, team_scores):
+    """
+    Find the MOST IMPACTFUL realistic events that can still happen.
+    Changes every update as match state evolves.
+    Returns list of insight strings (max 5).
+    """
+    if not team_scores or len(team_scores) < 2:
+        return []
+
+    match_id = match["_id"]
+    perfs_raw = list(db.playerperformances.find({"matchId": match_id}))
+    perf_by_pid = {str(p["playerId"]): p for p in perfs_raw}
+    players_raw = {str(p["_id"]): p for p in db.players.find({"isActive": True})}
+
+    league = db.leagues.find_one({"season": "IPL_2026"})
+    if not league:
+        return []
+    member_ids = league.get("members", [])
+    teams = list(db.fantasyteams.find({"matchId": match_id, "userId": {"$in": member_ids}}))
+    user_cache = {}
+    for t in teams:
+        u = db.users.find_one({"_id": t["userId"]})
+        if u:
+            user_cache[str(t["userId"])] = u.get("name", "?")
+
+    # Build current rankings from team_scores
+    current_ranks = {}
+    current_pts_map = {}
+    for i, ts in enumerate(team_scores):
+        uid = str(ts.get("userId", ts.get("_id", "")))
+        current_ranks[uid] = i + 1
+        current_pts_map[uid] = ts.get("totalPoints", 0)
+
+    def calc_team_pts(team, override_pid=None, override_perf=None):
+        total = 0
+        for pid_obj in team.get("players", []):
+            pid = str(pid_obj)
+            perf = override_perf if pid == override_pid else perf_by_pid.get(pid)
+            player = players_raw.get(pid)
+            if not perf or not player:
+                continue
+            pts = calculate_fantasy_points(perf, player.get("role", "BAT"))
+            is_cap = str(team.get("captain", "")) == pid
+            is_vc = str(team.get("viceCaptain", "")) == pid
+            total += apply_multiplier(pts, is_cap, is_vc)
+        return round(total, 1)
+
+    # Find ALL active players (still batting or bowling)
+    active_pids = set()
+    for pid, perf in perf_by_pid.items():
+        is_batting = perf.get("didBat") and not perf.get("isDismissed")
+        is_bowling = perf.get("oversBowled", 0) > 0 and perf.get("oversBowled", 0) < 4
+        if is_batting or is_bowling:
+            active_pids.add(pid)
+
+    if not active_pids:
+        return ["  Match nearly done — no active batsmen/bowlers left"]
+
+    # For each active player, simulate ONE realistic event and find all rank swaps
+    all_scenarios = []
+
+    for pid in active_pids:
+        perf = perf_by_pid[pid]
+        player = players_raw.get(pid)
+        if not player:
+            continue
+        name = player.get("name", "?")
+        role = player.get("role", "BAT")
+
+        events = []
+        is_batting = perf.get("didBat") and not perf.get("isDismissed")
+        is_bowling = perf.get("oversBowled", 0) > 0 and perf.get("oversBowled", 0) < 4
+
+        if is_batting:
+            runs = perf.get("runs", 0)
+            bf = perf.get("ballsFaced", 0)
+            sr = (runs / bf * 100) if bf > 0 else 130
+            # Next milestone
+            if runs < 25:
+                events.append((f"{name} reaches 25", {**perf, "runs": 25, "ballsFaced": bf + int((25 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 2}))
+            elif runs < 50:
+                events.append((f"{name} reaches 50", {**perf, "runs": 50, "ballsFaced": bf + int((50 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 3, "sixes": perf.get("sixes", 0) + 1}))
+            elif runs < 100 and role in ("BAT", "WK"):
+                events.append((f"{name} hits century!", {**perf, "runs": 100, "ballsFaced": bf + int((100 - runs) / (sr / 100)), "fours": perf.get("fours", 0) + 5, "sixes": perf.get("sixes", 0) + 3}))
+            # Gets out now
+            events.append((f"{name} out at {runs}", {**perf, "isDismissed": True}))
+
+        if is_bowling and role in ("BOWL", "AR"):
+            wk = perf.get("wickets", 0)
+            events.append((f"{name} takes wicket ({wk+1}W)", {**perf, "wickets": wk + 1}))
+
+        # Evaluate each event — find who moves
+        for event_label, new_perf in events:
+            # Recalc ALL teams with this one player change
+            new_scores = []
+            for team in teams:
+                uid = str(team.get("userId", ""))
+                new_pts = calc_team_pts(team, override_pid=pid, override_perf=new_perf)
+                new_scores.append((uid, new_pts))
+            new_scores.sort(key=lambda x: x[1], reverse=True)
+
+            # Find rank changes
+            swaps = []
+            for new_rank_idx, (uid, new_pts) in enumerate(new_scores):
+                old_rank = current_ranks.get(uid, 99)
+                new_rank = new_rank_idx + 1
+                if new_rank != old_rank:
+                    uname = user_cache.get(uid, "?")
+                    swaps.append((uname, old_rank, new_rank))
+
+            if swaps:
+                impact = sum(abs(o - n) for _, o, n in swaps)
+                all_scenarios.append((event_label, swaps, impact))
+
+    # Sort by impact, deduplicate
+    all_scenarios.sort(key=lambda x: x[2], reverse=True)
+    seen_events = set()
+    insights = []
+    for event_label, swaps, impact in all_scenarios:
+        if event_label in seen_events:
+            continue
+        seen_events.add(event_label)
+        swap_strs = ", ".join(f"{n} #{o}→#{r}" for n, o, r in swaps[:3])
+        insights.append(f"  {event_label} → {swap_strs}")
+        if len(insights) >= 5:
+            break
+
+    return insights
 
 
 def send_whatsapp_updates(db, match, team_scores, state):
@@ -970,8 +1883,19 @@ def send_whatsapp_updates(db, match, team_scores, state):
             for i, u in enumerate(top)
         )
         msg = (f"\U0001f4ca *Live — {match['team1']} vs {match['team2']}*\n\n"
-               f"*Top 15 right now:*\n{lb_text}\n\n"
-               f"Points updating every 3 min! \U0001f525")
+               f"*Top 15 right now:*\n{lb_text}\n\n")
+
+        # Add "What it takes" insights
+        try:
+            insights = compute_what_it_takes(db, match, all_scores)
+            if insights:
+                msg += "\U0001f52e *What it takes to climb:*\n"
+                msg += "\n".join(insights)
+                msg += "\n\n"
+        except Exception as e:
+            print(f"    What-it-takes error: {e}")
+
+        msg += f"Points updating every 3 min! \U0001f525"
         send_group(msg)
 
     state.setdefault("last_dm", {})[match_key] = now
@@ -1032,10 +1956,13 @@ def send_submission_reminders(db, state):
                     if str(m["_id"]) in submitted_user_ids:
                         submitted.append(name)
                     else:
-                        pending.append(name)
+                        pending.append({
+                            "name": name,
+                            "phone": m.get("phone", ""),
+                        })
 
                 submitted_text = ", ".join(submitted) if submitted else "Nobody yet!"
-                pending_text = ", ".join(pending) if pending else "All done! \U0001f389"
+                pending_text, pending_mentions = render_user_refs(pending) if pending else ("All done! \U0001f389", [])
 
                 urgency = {40: "\u23f0", 20: "\u26a0\ufe0f", 10: "\U0001f6a8"}
                 mins_display = round(mins_left)
@@ -1047,7 +1974,7 @@ def send_submission_reminders(db, state):
                        f"\u274c *Pending:* {pending_text}\n\n"
                        f"Lock your team now! \U0001f449 {APP_BASE_URL}")
 
-                send_group(msg)
+                send_group(msg, mentions=pending_mentions)
                 state.setdefault("last_dm", {})[tier_key] = True
                 print(f"    Reminder sent: {tier_min}min tier for {match['team1']} vs {match['team2']}")
                 break  # Only send one tier per run
@@ -1158,8 +2085,8 @@ def auto_generate_missing_teams(db, match):
     players_pool = list(db.players.find({"_id": {"$in": all_player_ids}, "isActive": True}))
 
     if len(players_pool) < 11:
-        print(f"    Randomizer: only {len(players_pool)} players in playing XI, need 11. Skipping.")
-        return []
+        print(f"    Randomizer: only {len(players_pool)} players in playing XI, need 11. Will retry.")
+        return None
 
     # Get league members
     league = db.leagues.find_one({"season": "IPL_2026"})
@@ -1199,20 +2126,25 @@ def auto_generate_missing_teams(db, match):
             db.fantasyteams.insert_one(doc)
             user = db.users.find_one({"_id": uid})
             name = user.get("name", "?") if user else "?"
-            auto_picked.append(name)
+            auto_picked.append({
+                "name": name,
+                "phone": user.get("phone", "") if user else "",
+            })
             print(f"    Randomizer: auto-picked team for {name}")
         except Exception as e:
             # Duplicate key = already has a team (race condition)
             print(f"    Randomizer: skip {uid} — {e}")
 
     if auto_picked:
-        names = ", ".join(auto_picked)
+        names, mentions = render_user_refs(auto_picked)
         send_group(
             f"\U0001f3b2 *Auto-picked teams* for: {names}\n\n"
-            f"Missed the deadline — random team from playing XI assigned!"
+            f"Missed the deadline — random team from playing XI assigned!",
+            mentions=mentions,
         )
 
     return auto_picked
+
 
 def update_playing_11_best_effort_basis(match: dict, db) -> bool:
     """
@@ -1353,6 +2285,7 @@ def send_squad_announcement(db, match, state):
         f"\U0001f7e0 *{t1_name}:*\n{t1_names}\n",
         f"\U0001f535 *{t2_name}:*\n{t2_names}\n",
     ]
+    alert_mentions = []
 
     # Check submitted teams for non-playing players
     league = db.leagues.find_one({"season": "IPL_2026"})
@@ -1377,7 +2310,10 @@ def send_squad_announcement(db, match, state):
 
             if not_playing:
                 names_str = ", ".join(not_playing)
-                edit_alerts.append(f"\u26a0\ufe0f *{user_name}*: Replace {names_str}")
+                label, phone = mention_entry(user_name, user.get("phone", ""))
+                if phone:
+                    alert_mentions.append(phone)
+                edit_alerts.append(f"\u26a0\ufe0f *{label}*: Replace {names_str}")
 
         if edit_alerts:
             msg_parts.append("\u2757 *Edit your team — these players are NOT playing:*\n")
@@ -1387,7 +2323,7 @@ def send_squad_announcement(db, match, state):
             msg_parts.append("\u2705 All submitted teams have only playing XI players!")
 
     msg = "\n".join(msg_parts)
-    send_group(msg)
+    send_group(msg, mentions=alert_mentions)
     state.setdefault("last_dm", {})[squad_key] = True
     print(f"    Squad announcement sent for {t1_name} vs {t2_name}")
 
@@ -1454,7 +2390,7 @@ def main():
                     if im_result:
                         im_msg = build_team_summary_message(im_result, um)
                         if im_msg:
-                            send_group(im_msg)
+                            send_dm("917567838028", im_msg)
                 except Exception as im_err:
                     print(f"  Infinity Max early-submit error: {im_err}")
         except Exception as e:
@@ -1463,7 +2399,7 @@ def main():
         # 3a. For matches with playingXI: send squad announcement + auto-generate missing teams
         try:
             live_matches = list(db.matches.find({
-                "status": {"$in": ["live", "toss_done"]},
+                "status": {"$in": ["upcoming", "toss_done", "live"]},
                 "playingXI.team1": {"$exists": True, "$ne": []},
                 "playingXI.team2": {"$exists": True, "$ne": []},
             }))
@@ -1474,13 +2410,21 @@ def main():
                 except Exception as e:
                     print(f"  Squad announcement error: {e}")
 
-                # 3a-ii. Infinity Max smart team builder (runs BEFORE randomizer)
+                # ── Deadline gate: everything below only runs AFTER deadline ──
+                deadline = lm.get("deadline") or (lm["scheduledAt"] + timedelta(minutes=30))
+                dl_utc = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                if now_utc < dl_utc:
+                    print(f"  Deadline not passed yet — skipping Infinity Max + randomizer")
+                    continue
+
+                # 3a-ii. Infinity Max smart team builder (runs AFTER deadline)
                 try:
                     im_result = auto_build_and_submit(db, lm, state)
                     if im_result:
                         im_msg = build_team_summary_message(im_result, lm)
                         if im_msg:
-                            send_group(im_msg)
+                            send_dm("917567838028", im_msg)
                 except Exception as im_err:
                     print(f"  Infinity Max builder error: {im_err}")
 
@@ -1490,11 +2434,29 @@ def main():
                     continue
                 auto_picked = auto_generate_missing_teams(db, lm)
                 if auto_picked is not None:
-                    # Mark as done even if 0 picks (so we don't retry)
+                    # Mark done only if pool was sufficient (list returned, even if empty = everyone submitted)
+                    # An empty list means everyone already had teams — safe to stop.
+                    # None means pool < 11 players — retry next cycle when full XI arrives.
                     state.setdefault("last_dm", {})[rando_key] = True
         except Exception as e:
             print(f"  Randomizer error: {e}")
 
+
+        # Build player name map once for ESPN dot ball lookups
+        _all_players = list(db.players.find({}))
+        _pbn = {}
+        for _p in _all_players:
+            _n = _p["name"].strip().lower()
+            _pbn[_n] = _p
+            _parts = _n.split()
+            if len(_parts) > 1:
+                _pbn[_parts[-1]] = _p
+            for _a in _p.get("aliases", []):
+                _ac = _a.strip().lower()
+                _pbn[_ac] = _p
+                _ap = _ac.split()
+                if len(_ap) > 1:
+                    _pbn[_ap[-1]] = _p
 
         for m in matches:
             cb_id = m["cb_id"]
@@ -1539,6 +2501,16 @@ def main():
                 result = update_match_scores(db, cb_id, scorecard)
                 if not result:
                     continue
+
+                # 7b. Fetch dot balls from ESPN for completed matches
+                if scorecard.get("is_complete"):
+                    try:
+                        # Re-fetch match to get updated status
+                        fresh_match = db.matches.find_one({"_id": result["match"]["_id"]})
+                        if fresh_match:
+                            update_dot_balls_from_espn(db, fresh_match, _pbn)
+                    except Exception as espn_err:
+                        print(f"    ESPN dot ball error: {espn_err}")
 
                 # 8. Detect leaderboard takeovers
                 try:

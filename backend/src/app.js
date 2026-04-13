@@ -16,6 +16,7 @@ const { startCronJobs } = require('./services/cron.service');
 const cricapiRoutes = require('./routes/cricapi.routes');
 const predictionsRoutes = require('./routes/predictions.routes');
 const statsRoutes = require('./routes/stats.routes');
+const forecastRoutes = require('./routes/forecast.routes');
 
 const app = express();
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:4200')
@@ -54,6 +55,7 @@ app.use('/api/awards', awardsRoutes);
 app.use('/api/cricapi', cricapiRoutes);
 app.use('/api/predictions', predictionsRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/forecast', forecastRoutes);
 
 // 404 handler
 app.use((_req, res) => res.status(404).json({ message: 'Route not found' }));

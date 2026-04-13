@@ -60,6 +60,29 @@ export interface FantasyTeam {
   isLocked: boolean;
 }
 
+export interface UserBreakdownTeamPlayer {
+  player: Player;
+  performance: PlayerPerformance | null;
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+}
+
+export interface UserBreakdownPrediction {
+  type: 'winner' | 'superover';
+  predictedWinner: string;
+  isCorrect: boolean | null;
+  bonusPoints: number;
+}
+
+export interface UserBreakdownTeam {
+  teamId: string;
+  match: Match;
+  totalPoints: number;
+  players: UserBreakdownTeamPlayer[];
+  predictionBonus: number;
+  predictionDetails: UserBreakdownPrediction[];
+}
+
 export interface PlayerPerformance {
   _id: string;
   playerId: Player;
@@ -75,6 +98,7 @@ export interface PlayerPerformance {
   wickets: number;
   maidens: number;
   lbwBowledWickets: number;
+  dotBalls: number;
   catches: number;
   stumpings: number;
   runOutDirect: number;
@@ -110,7 +134,7 @@ export interface ScoringRule {
 }
 
 export interface ScoringRuleSection {
-  key: 'batting' | 'bowling' | 'fielding';
+  key: 'batting' | 'bowling' | 'fielding' | 'predictions';
   title: string;
   icon: string;
   color: string;
@@ -180,16 +204,98 @@ export interface SeasonInsight {
   label: string;
 }
 
+
+export interface SeasonEndAward {
+  type: string;
+  icon: string;
+  title: string;
+  winner: string;
+  value: string;
+  runnerUp: { name: string; value: string } | null;
+  gap: string | null;
+}
+
+export interface SeasonEndAwardsResponse {
+  awards: SeasonEndAward[];
+  matchesPlayed: number;
+}
+
+export interface MoneyMatchDetail {
+  matchLabel: string;
+  matchDate: string;
+  rank: number;
+  points: number;
+  won: number;
+  net: number;
+}
+
 export interface MoneyEntry {
   userId: string;
   userName: string;
   invested: number;
   won: number;
   net: number;
+  matches?: MoneyMatchDetail[];
 }
 
 export interface SeasonInsightsResponse {
   insights: SeasonInsight[];
   money: MoneyEntry[];
   awardPool?: number;
+}
+
+// ── Forecast / Predictions ───────────────────────────────────────────────────
+export interface ForecastEntry {
+  userId: string;
+  userName: string;
+  currentPoints: number;
+  currentSeasonRank: number;
+  livePoints: number;
+  projectedMatchPoints: number;
+  projectedSeasonTotal: number;
+  projectedRank: number;
+  projectedMatchRank: number;
+  confidence: number;
+  pointRange: { min: number; max: number };
+}
+
+export interface ScenarioSwap {
+  userId: string;
+  userName: string;
+  oldRank: number;
+  newRank: number;
+  direction: 'up' | 'down';
+  change: number;
+}
+
+export interface ScenarioOwner {
+  userName: string;
+  multiplier: string;
+}
+
+export interface Scenario {
+  event: string;
+  playerName: string;
+  playerId: string;
+  impact: number;
+  swaps: ScenarioSwap[];
+  owners: ScenarioOwner[];
+  ownedBy: number;
+}
+
+export interface ScenariosResponse {
+  matchId: string;
+  matchLabel: string;
+  scenarios: Scenario[];
+  totalEvaluated: number;
+  generatedAt: string;
+}
+
+export interface ForecastResponse {
+  matchId: string;
+  matchLabel: string;
+  matchStatus: MatchStatus;
+  forecast: ForecastEntry[];
+  matchProgress: { oversCompleted: number; totalOvers: number; inning: number };
+  generatedAt: string;
 }

@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { getMatchAwards, getSeasonAwards } = require('../controllers/awards.controller');
 
+// Per-match awards removed — season category awards served from /api/stats/season-awards
 router.use(authenticate);
 
-router.get('/match/:matchId', getMatchAwards);
-router.get('/season', getSeasonAwards);
+// Keep season route returning empty for backward compat (frontend may still call it)
+router.get('/season', (_req, res) => res.json([]));
+router.get('/match/:matchId', (_req, res) => res.json([]));
 
 module.exports = router;

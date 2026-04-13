@@ -288,7 +288,7 @@ function mapScorecardToPerformances(scorecardData) {
         runs: 0, ballsFaced: 0, fours: 0, sixes: 0,
         didBat: false, isDismissed: false,
         oversBowled: 0, runsConceded: 0, wickets: 0, maidens: 0,
-        lbwBowledWickets: 0,
+        lbwBowledWickets: 0, dotBalls: 0,
         catches: 0, stumpings: 0, runOutDirect: 0, runOutIndirect: 0,
       };
     }
@@ -338,6 +338,7 @@ function mapScorecardToPerformances(scorecardData) {
         p.runsConceded = (b.r ?? b.runs ?? 0);
         p.wickets = (b.w ?? b.wickets ?? 0);
         p.maidens = (b.m ?? b.maidens ?? 0);
+        p.dotBalls = (b["0s"] ?? b.d ?? b.dots ?? 0);
 
         // Extract player image
         const img = b.bowler?.img || b.img;
@@ -346,23 +347,78 @@ function mapScorecardToPerformances(scorecardData) {
     }
   }
 
+  // ── Fielding name resolution ──
+  // Dismissal strings use partial names ("c Bumrah b Boult") but batting/bowling
+  // sections have full names ("Jasprit Bumrah"). Resolve partial fielding names
+  // to existing full-name entries before creating new orphan entries.
+  const knownNames = Object.keys(playerMap);
+
+  function resolveFielderName(partialName) {
+    // Already an exact key in playerMap
+    if (playerMap[partialName]) return partialName;
+
+    const partial = partialName.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+    const partialParts = partial.split(' ');
+    const partialLast = partialParts[partialParts.length - 1];
+    const partialFirst = partialParts.length > 1 ? partialParts[0] : null;
+
+    // Score each known name — higher score = better match
+    let bestMatch = null;
+    let bestScore = 0;
+    let tieCount = 0;
+
+    for (const full of knownNames) {
+      const fullLower = full.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+      const fullParts = fullLower.split(' ');
+      const fullLast = fullParts[fullParts.length - 1];
+
+      if (fullLast !== partialLast) continue;
+
+      let score = 1; // base: last name matches
+
+      if (partialFirst) {
+        const fullFirst = fullParts[0];
+        if (partialFirst === fullFirst) {
+          score = 4; // exact first name match ("rohit" == "rohit")
+        } else if (partialFirst.length <= 2 && fullFirst.startsWith(partialFirst[0])) {
+          score = 3; // initial match ("r" matches "rohit")
+        } else if (fullFirst.startsWith(partialFirst) || partialFirst.startsWith(fullFirst)) {
+          score = 2; // prefix match ("rash" matches "rashid")
+        } else {
+          continue; // first name given but doesn't match — skip
+        }
+      }
+
+      if (score > bestScore) {
+        bestMatch = full;
+        bestScore = score;
+        tieCount = 1;
+      } else if (score === bestScore) {
+        tieCount++;
+      }
+    }
+
+    // Only resolve if there's exactly one best match (no ambiguity)
+    return (bestMatch && tieCount === 1) ? bestMatch : partialName;
+  }
+
   // Process fielding from dismissals
   for (const d of allDismissals) {
     if (d.type === 'caught' && d.catcher) {
-      getOrInit(d.catcher).catches++;
+      getOrInit(resolveFielderName(d.catcher)).catches++;
     }
     if (d.type === 'stumped' && d.keeper) {
-      getOrInit(d.keeper).stumpings++;
+      getOrInit(resolveFielderName(d.keeper)).stumpings++;
     }
     if (d.type === 'runout_direct' && d.fielders) {
-      for (const f of d.fielders) getOrInit(f).runOutDirect++;
+      for (const f of d.fielders) getOrInit(resolveFielderName(f)).runOutDirect++;
     }
     if (d.type === 'runout_indirect' && d.fielders) {
-      for (const f of d.fielders) getOrInit(f).runOutIndirect++;
+      for (const f of d.fielders) getOrInit(resolveFielderName(f)).runOutIndirect++;
     }
     // Count LBW/bowled wickets for the bowler
     if ((d.type === 'lbw' || d.type === 'bowled') && d.bowler) {
-      getOrInit(d.bowler).lbwBowledWickets++;
+      getOrInit(resolveFielderName(d.bowler)).lbwBowledWickets++;
     }
   }
 
@@ -376,8 +432,23 @@ function mapScorecardToPerformances(scorecardData) {
   return {
     performances: Object.values(playerMap),
     matchEnded,
+    matchStatus: data.status || '',
     images,
   };
+}
+
+/**
+ * Convert a CricAPI result string to local format by replacing full team names with abbreviations.
+ * e.g., "Chennai Super Kings won by 5 wickets" → "CSK won by 5 wickets"
+ */
+function convertResultToLocal(resultStr) {
+  if (!resultStr) return '';
+  let result = resultStr;
+  for (const [fullName, abbr] of Object.entries(TEAM_NAME_TO_ABBR)) {
+    const regex = new RegExp(fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    result = result.replace(regex, abbr);
+  }
+  return result;
 }
 
 module.exports = {
@@ -391,5 +462,6 @@ module.exports = {
   convertOvers,
   parseDismissal,
   teamNameToAbbr,
+  convertResultToLocal,
   autoLinkMatches,
 };

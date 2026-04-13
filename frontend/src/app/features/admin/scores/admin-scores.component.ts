@@ -42,7 +42,14 @@ import { firstValueFrom } from 'rxjs';
         </div>
 
         <form [formGroup]="scoresForm" (ngSubmit)="submitScores()">
-          <div class="space-y-3" formArrayName="performances">
+          <mat-form-field appearance="outline" class="w-full">
+            <mat-label>Match Result</mat-label>
+            <input matInput formControlName="matchResult"
+                   placeholder="e.g. CSK won by 5 wickets" />
+            <mat-hint>Required for prediction bonus points (50 pts for correct winner, 150 pts for super over)</mat-hint>
+          </mat-form-field>
+
+          <div class="space-y-3 mt-4" formArrayName="performances">
             @for (player of squad.value()!.players; track player._id; let i = $index) {
               <mat-expansion-panel>
                 <mat-expansion-panel-header>
@@ -98,6 +105,11 @@ import { firstValueFrom } from 'rxjs';
                     <mat-label>LBW/Bowled Wickets</mat-label>
                     <input matInput type="number" formControlName="lbwBowledWickets" min="0" />
                     <mat-hint>Wickets that were LBW or Bowled (bonus +8 each)</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" class="col-span-2">
+                    <mat-label>Dot Balls</mat-label>
+                    <input matInput type="number" formControlName="dotBalls" min="0" />
+                    <mat-hint>Balls bowled where no runs scored (+2 pts each)</mat-hint>
                   </mat-form-field>
 
                   <!-- Fielding -->
@@ -156,6 +168,7 @@ export class AdminScoresComponent {
   });
 
   readonly scoresForm = this.fb.group({
+    matchResult: [''],
     performances: this.fb.array([]),
   });
 
@@ -176,7 +189,7 @@ export class AdminScoresComponent {
       runs: [0], ballsFaced: [0], fours: [0], sixes: [0],
       didBat: [false], isDismissed: [false],
       oversBowled: [0], runsConceded: [0], wickets: [0],
-      maidens: [0], lbwBowledWickets: [0],
+      maidens: [0], lbwBowledWickets: [0], dotBalls: [0],
       catches: [0], stumpings: [0], runOutDirect: [0], runOutIndirect: [0],
     });
   }
@@ -184,8 +197,9 @@ export class AdminScoresComponent {
   submitScores() {
     this.submitting.set(true);
     const perfs = (this.scoresForm.value.performances ?? []) as any[];
+    const matchResult = this.scoresForm.value.matchResult ?? '';
 
-    this.api.submitScores(this.matchId(), perfs).subscribe({
+    this.api.submitScores(this.matchId(), perfs, matchResult).subscribe({
       next: () => {
         this.snackBar.open('✅ Scores submitted! Fantasy points calculated.', 'OK', { duration: 3000 });
         this.router.navigate(['/admin/matches']);

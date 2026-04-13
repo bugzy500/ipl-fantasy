@@ -10,14 +10,14 @@ const { buildFantasyPointsBreakdown, getScoringRules } = require('../services/sc
  */
 const submitScores = async (req, res) => {
   const { matchId } = req.params;
-  const { performances } = req.body;
+  const { performances, result: matchResult } = req.body;
 
   if (!Array.isArray(performances) || performances.length === 0) {
     return res.status(400).json({ message: 'performances array is required' });
   }
 
   try {
-    const result = await processPerformances(matchId, performances, { markCompleted: true });
+    const result = await processPerformances(matchId, performances, { markCompleted: true, result: matchResult || '' });
     res.json({ message: 'Scores submitted and fantasy teams updated', teamsUpdated: result.teamsUpdated });
   } catch (err) {
     const status = err.message.includes('not found') ? 404 : err.message.includes('voided') ? 400 : 500;

@@ -1,17 +1,19 @@
 import { Component, inject, input, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
 import { interval, Subscription, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { LeaderboardEntry, MatchStatus } from '../../../core/models/api.models';
+import { PointBreakdownDialogComponent } from '../../../shared/components/point-breakdown-dialog/point-breakdown-dialog.component';
 
 const POLL_INTERVAL_MS = 30_000;
 
 @Component({
   selector: 'app-leaderboard-tab',
   standalone: true,
-  imports: [MatProgressSpinnerModule, MatIconModule],
+  imports: [MatProgressSpinnerModule, MatIconModule, MatDialogModule],
   template: `
     <div class="p-4 space-y-3">
       <div class="flex items-center justify-between">
@@ -26,6 +28,9 @@ const POLL_INTERVAL_MS = 30_000;
         }
       </div>
 
+      @if (leaderboard().length > 0 && !loading()) {
+        <p class="text-xs" style="color: var(--color-text-subtle);">Tap a player to see their team & point breakdown</p>
+      }
       @if (loading()) {
         <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
       }
@@ -34,7 +39,8 @@ const POLL_INTERVAL_MS = 30_000;
       }
 
       @for (entry of leaderboard(); track entry.userId; let i = $index) {
-        <div class="flex items-center gap-3 p-4 rounded-xl transition-all stagger-item fade-up"
+        <div class="flex items-center gap-3 p-4 rounded-xl transition-all stagger-item fade-up cursor-pointer hover:brightness-110"
+             (click)="openBreakdown(entry.userId, entry.userName)"
              [style.background]="entry.userId === myUserId() ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
              [style.border]="entry.userId === myUserId() ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'">
           <span class="w-8 text-center text-display font-bold text-lg"
@@ -57,6 +63,7 @@ const POLL_INTERVAL_MS = 30_000;
           <span class="text-display font-bold text-lg" style="color: var(--color-accent-hover);">
             {{ entry.totalPoints }}
           </span>
+          <mat-icon style="color: var(--color-text-subtle); font-size: 16px; width: 16px; height: 16px;">chevron_right</mat-icon>
         </div>
       }
 
@@ -74,6 +81,7 @@ export class LeaderboardTabComponent implements OnInit, OnDestroy {
 
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly dialog = inject(MatDialog);
 
   readonly leaderboard = signal<LeaderboardEntry[]>([]);
   readonly loading = signal(true);
@@ -88,6 +96,15 @@ export class LeaderboardTabComponent implements OnInit, OnDestroy {
     if (index === 1) return '#94A3B8';
     if (index === 2) return '#D97706';
     return 'var(--color-text-muted)';
+  }
+
+  openBreakdown(userId: string, userName: string) {
+    this.dialog.open(PointBreakdownDialogComponent, {
+      data: { userId, userName, matchId: this.matchId() },
+      width: '100%',
+      maxWidth: '500px',
+      panelClass: 'bottom-sheet-dialog'
+    });
   }
 
   ngOnInit() {

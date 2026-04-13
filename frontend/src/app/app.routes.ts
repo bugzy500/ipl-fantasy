@@ -40,6 +40,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/leaderboard/leaderboard.component').then((m) => m.LeaderboardComponent),
       },
       {
+        path: 'predictions',
+        loadComponent: () => import('./features/predictions/predictions.component').then((m) => m.PredictionsComponent),
+      },
+      {
         path: 'rules',
         loadComponent: () => import('./features/rules/rules.component').then((m) => m.RulesComponent),
       },
