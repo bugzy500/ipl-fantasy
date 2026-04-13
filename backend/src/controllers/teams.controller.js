@@ -1,6 +1,7 @@
 const FantasyTeam = require('../models/FantasyTeam.model');
 const Match = require('../models/Match.model');
 const Player = require('../models/Player.model');
+const Prediction = require('../models/Prediction.model');
 const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
 const TEAM_SIZE = 11;
@@ -88,6 +89,12 @@ const upsertTeam = async (req, res) => {
 
     const validationError = await validateTeam(players, captain, viceCaptain, match);
     if (validationError) return res.status(400).json({ message: validationError });
+
+    // Win prediction is mandatory before team submission
+    const prediction = await Prediction.findOne({ userId: req.user._id, matchId });
+    if (!prediction) {
+      return res.status(400).json({ message: 'You must make a win prediction before submitting your team' });
+    }
 
     const updateData = { players, captain, viceCaptain, totalPoints: 0 };
     // If editing an auto-generated team, mark it as user-owned now

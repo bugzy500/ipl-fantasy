@@ -141,6 +141,7 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
                 [players]="data.players"
                 [deadline]="data.match.deadline"
                 [matchStatus]="data.match.status"
+                [hasPrediction]="!!myPrediction()"
               />
             } @placeholder {
               <div class="flex justify-center p-8"><mat-spinner /></div>
