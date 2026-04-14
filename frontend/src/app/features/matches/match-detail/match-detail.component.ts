@@ -158,7 +158,7 @@ import { PlayerScoresTabComponent } from './player-scores-tab.component';
 
           <mat-tab label="Leaderboard">
             @defer (on viewport) {
-              <app-leaderboard-tab [matchId]="id()" [matchStatus]="data.match.status" />
+              <app-leaderboard-tab [matchId]="id()" [matchStatus]="data.match.status" [deadline]="data.match.deadline" />
             } @placeholder {
               <div class="flex justify-center p-8"><mat-spinner /></div>
             }

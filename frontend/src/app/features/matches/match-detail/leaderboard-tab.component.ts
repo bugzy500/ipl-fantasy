@@ -2,6 +2,7 @@ import { Component, inject, input, signal, computed, OnInit, OnDestroy } from '@
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { interval, Subscription, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -13,7 +14,7 @@ const POLL_INTERVAL_MS = 30_000;
 @Component({
   selector: 'app-leaderboard-tab',
   standalone: true,
-  imports: [MatProgressSpinnerModule, MatIconModule, MatDialogModule],
+  imports: [MatProgressSpinnerModule, MatIconModule, MatDialogModule, MatSnackBarModule],
   template: `
     <div class="p-4 space-y-3">
       <div class="flex items-center justify-between">
@@ -78,16 +79,19 @@ const POLL_INTERVAL_MS = 30_000;
 export class LeaderboardTabComponent implements OnInit, OnDestroy {
   readonly matchId = input.required<string>();
   readonly matchStatus = input.required<MatchStatus>();
+  readonly deadline = input.required<string>();
 
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
 
   readonly leaderboard = signal<LeaderboardEntry[]>([]);
   readonly loading = signal(true);
   readonly error = signal('');
   readonly isLive = computed(() => this.matchStatus() === 'live');
   readonly myUserId = computed(() => this.auth.currentUser()?.id ?? '');
+  readonly deadlinePassed = computed(() => new Date(this.deadline()) <= new Date());
 
   private subscription?: Subscription;
 
@@ -99,6 +103,11 @@ export class LeaderboardTabComponent implements OnInit, OnDestroy {
   }
 
   openBreakdown(userId: string, userName: string) {
+    if (!this.deadlinePassed() && userId !== this.myUserId()) {
+      this.snackBar.open('Team will be visible after the deadline passes.', 'OK', { duration: 3000 });
+      return;
+    }
+
     this.dialog.open(PointBreakdownDialogComponent, {
       data: { userId, userName, matchId: this.matchId() },
       width: '100%',
