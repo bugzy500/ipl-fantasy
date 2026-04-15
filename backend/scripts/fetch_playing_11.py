@@ -364,8 +364,8 @@ def _run_cli() -> int:
         return 0 if success else 1
 
     # ── Configure the two teams to fetch ─────────────────────────────────
-    TEAM_1 = "CSK"
-    TEAM_2 = "PBKS"
+    TEAM_1 = "LSG"
+    TEAM_2 = "DC"
     # ─────────────────────────────────────────────────────────────────────
 
     print(f"\nFetching Playing XI: {TEAM_1} vs {TEAM_2}")
@@ -421,8 +421,8 @@ def test_fetch():
             passed += 1
         else:
             print(f"  [FAIL] {label}")
-            print(f"  Expected: {expected}")
-            print(f" Actual:   {actual}")
+            print(f"       Expected: {expected}")
+            print(f"       Actual:   {actual}")
             failed += 1
 
     def separator(title):
