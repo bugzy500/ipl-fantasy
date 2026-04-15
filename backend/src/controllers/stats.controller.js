@@ -355,15 +355,14 @@ const getSeasonAwards = async (req, res) => {
       gap: worstVc[1] ? `${Math.round((worstVc[1].total - worstVc[0].total) * 10) / 10} pts lower` : null,
     });
 
-    // 9. Pity Award (Most last-place finishes)
-    const lastRank = Math.max(...users.flatMap(([, u]) => u.matches.map(m => m.rank)));
+    // 9. Pity Award (Most 8th-place finishes)
     const pityCounts = users.map(([, u]) => ({
-      name: u.name, count: u.matches.filter(m => m.rank === lastRank).length,
+      name: u.name, count: u.matches.filter(m => m.rank === 8).length,
     })).sort((a, b) => b.count - a.count);
     if (pityCounts[0] && pityCounts[0].count > 0) awards.push({
-      type: 'pity_award', icon: 'sentiment_dissatisfied', title: `Pity Award (Most Last Places)`,
-      winner: pityCounts[0].name, value: `${pityCounts[0].count}× last place`,
-      runnerUp: ru(pityCounts, r => `${r.count}× last place`),
+      type: 'pity_award', icon: 'sentiment_dissatisfied', title: `Pity Award (Most 8th Places)`,
+      winner: pityCounts[0].name, value: `${pityCounts[0].count}× 8th place`,
+      runnerUp: ru(pityCounts, r => `${r.count}× 8th place`),
       gap: cntGap(pityCounts[0].count, pityCounts[1]?.count, 'times'),
     });
 
