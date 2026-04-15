@@ -2393,24 +2393,18 @@ def update_dot_balls_from_ipl(db, match, players_by_name):
     """
     match_id = match["_id"]
 
-    # ── 1. Already processed ─────────────────────────────────────────────
-    if match.get("iplMatchId"):
+    # ── 1. Only process if iplMatchId is present on the match doc ────────
+    ipl_match_id = match.get("iplMatchId")
+    if not ipl_match_id:
+        # We now rely solely on the iplMatchId field being pre-set
         return 0
 
     # ── 2. Only completed matches ────────────────────────────────────────
     if match.get("status") != "completed":
         return 0
 
-    # ── 3. Need team abbreviations to look up the IPL smId ───────────────
-    team1 = (match.get("team1") or "").strip()
-    team2 = (match.get("team2") or "").strip()
-    if not team1 or not team2:
-        print(f"    IPL: no team abbreviations on match {match_id}; skipping")
-        return 0
-
-    # ── 4. Don't clobber existing dot ball data from another source ──────
-    # If ESPN patcher (or any prior run) already wrote dots > 0 for any
-    # bowler in this match, assume the data is authoritative and skip.
+    # ── 3. Check for existing dot ball data ──────────────────────────────
+    # If any bowler in this match already has dotBalls > 0, skip to avoid clobbering.
     already_has_dots = db.playerperformances.find_one({
         "matchId": match_id,
         "oversBowled": {"$gt": 0},
@@ -2420,22 +2414,11 @@ def update_dot_balls_from_ipl(db, match, players_by_name):
         print(f"    IPL: match {match_id} already has dot ball data; skipping")
         return 0
 
-    # ── 5. Resolve team pair → IPL smId via matchlinks ───────────────────
+    # ── 4. Fetch scoreboard using iplMatchId ─────────────────────────────
     client = _get_ipl_client()
     try:
-        link = client.find_match_by_teams(team1, team2)
-        # Matchlinks cache may have been fetched before this match was
-        # published to the feed — force a refresh and retry once.
-        if not link:
-            client.fetch_match_links(force_refresh=True)
-            link = client.find_match_by_teams(team1, team2)
-        if not link:
-            print(f"    IPL: matchlinks has no entry for {team1} vs {team2}; will retry next cycle")
-            return 0
-
-        # ── 6. Fetch full scoreboard (both innings) ──────────────────────
-        print(f"    Fetching IPL scoreboard (smId {link.match_id}) for {team1} vs {team2}...")
-        scoreboard = client.fetch_scoreboard(link.match_id)
+        print(f"    Fetching IPL scoreboard (iplMatchId {ipl_match_id})...")
+        scoreboard = client.fetch_scoreboard(ipl_match_id)
     except IPLFeedError as e:
         print(f"    IPL fetch failed: {e} — terminating")
         return 0
@@ -2443,9 +2426,7 @@ def update_dot_balls_from_ipl(db, match, players_by_name):
         print(f"    IPL unexpected error: {e} — terminating")
         return 0
 
-    # Require both innings to be present. A partial scoreboard means the
-    # IPL feed publication is mid-cycle — retry next pass instead of
-    # partial-patching and leaving ambiguous state in the DB.
+    # Require both innings to be present.
     if len(scoreboard.innings) < 2:
         print(f"    IPL: got {len(scoreboard.innings)} innings (expected 2) — terminating")
         return 0
@@ -2507,17 +2488,10 @@ def update_dot_balls_from_ipl(db, match, players_by_name):
               f"add as aliases to the respective player docs in Mongo: {unmatched}")
 
     if updated == 0:
-        print(f"    IPL: 0 records updated; not marking iplMatchId")
+        print(f"    IPL: 0 records updated")
         return 0
 
-    # ── 10. Persist iplMatchId on the match doc ──────────────────────────
-    # Once this is set, guard #1 short-circuits future runs for this match.
-    db.matches.update_one(
-        {"_id": match_id},
-        {"$set": {"iplMatchId": link.match_id}},
-    )
-
-    print(f"    IPL dot balls: {updated} bowler(s) patched (smId={link.match_id})")
+    print(f"    IPL dot balls: {updated} bowler(s) patched (iplMatchId={ipl_match_id})")
     return updated
 
 # ─── Main ───
