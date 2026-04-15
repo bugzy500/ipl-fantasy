@@ -1415,186 +1415,6 @@ def update_match_scores(db, cb_match_id, scorecard):
     print(f"    Updated {len(performances)} players, {len(teams_cursor)} teams")
     return {"match": match, "team_scores": team_scores}
 
-
-# ─── ESPN Dot Ball Integration ───
-# Cricbuzz scorecard never provides dot ball data (dots field always 0).
-# ESPN's public API reliably returns per-bowler dot ball counts.
-# This runs once per completed match, fetching dots and patching performances.
-
-ESPN_API_URL = "https://site.api.espn.com/apis/site/v2/sports/cricket/8048"
-_espn_schedule = None  # cached schedule
-
-
-def _get_espn_schedule():
-    """Fetch IPL 2026 schedule from ESPN (cached per scraper run)."""
-    global _espn_schedule
-    if _espn_schedule is not None:
-        return _espn_schedule
-    try:
-        r = requests.get(f"{ESPN_API_URL}/scoreboard?dates=2026&limit=100",
-                         headers=HEADERS, timeout=15)
-        if r.status_code == 200:
-            events = r.json().get("events", [])
-            _espn_schedule = []
-            for ev in events:
-                comps = ev.get("competitions", [{}])
-                teams = [c.get("team", {}).get("abbreviation", "")
-                         for c in comps[0].get("competitors", [])] if comps else []
-                _espn_schedule.append({
-                    "espn_id": ev.get("id"),
-                    "teams": teams,
-                    "date": ev.get("date", "")[:10],
-                })
-            return _espn_schedule
-    except Exception as e:
-        print(f"    ESPN schedule fetch error: {e}")
-    _espn_schedule = []
-    return _espn_schedule
-
-
-def _find_espn_event_id(match):
-    """Find ESPN event ID for a match by matching teams + date."""
-    # If already stored, use it
-    if match.get("espnMatchId"):
-        return match["espnMatchId"]
-
-    schedule = _get_espn_schedule()
-    t1 = match.get("team1", "").upper()
-    t2 = match.get("team2", "").upper()
-    match_date = match.get("scheduledAt")
-    if match_date:
-        match_date_str = match_date.strftime("%Y-%m-%d") if hasattr(match_date, 'strftime') else str(match_date)[:10]
-    else:
-        match_date_str = ""
-
-    for ev in schedule:
-        ev_teams = set(t.upper() for t in ev["teams"])
-        if t1 in ev_teams and t2 in ev_teams:
-            return ev["espn_id"]
-        # Also match by date if teams don't match exactly (abbreviation differences)
-        if match_date_str and ev["date"] == match_date_str and len(ev_teams & {t1, t2}) >= 1:
-            return ev["espn_id"]
-
-    return None
-
-
-def update_dot_balls_from_espn(db, match, players_by_name):
-    """
-    Fetch dot balls from ESPN API and patch PlayerPerformance records.
-    Only runs for completed matches that haven't been patched yet.
-    Returns number of records updated.
-    """
-    match_id = match["_id"]
-
-    # Skip if already fetched
-    if match.get("espnMatchId"):
-        return 0
-
-    # Only for completed matches
-    if match.get("status") != "completed":
-        return 0
-
-    # Check if any bowler already has dotBalls > 0 (already patched)
-    has_dots = db.playerperformances.find_one({
-        "matchId": match_id, "oversBowled": {"$gt": 0}, "dotBalls": {"$gt": 0}
-    })
-    if has_dots:
-        return 0
-
-    espn_id = _find_espn_event_id(match)
-    if not espn_id:
-        print(f"    No ESPN event found for {match.get('team1')} vs {match.get('team2')}")
-        return 0
-
-    print(f"    Fetching dot balls from ESPN (event {espn_id})...")
-    try:
-        r = requests.get(f"{ESPN_API_URL}/summary?event={espn_id}",
-                         headers=HEADERS, timeout=15)
-        if r.status_code != 200:
-            print(f"    ESPN API returned {r.status_code}")
-            return 0
-
-        data = r.json()
-        dots_by_bowler = {}
-
-        for team in data.get("rosters", []):
-            for player in team.get("roster", []):
-                name = player.get("athlete", {}).get("displayName", "")
-                for ls_period in player.get("linescores", []):
-                    for ls in ls_period.get("linescores", []):
-                        for cat in ls.get("statistics", {}).get("categories", []):
-                            stats = {s["name"]: s.get("value", 0) for s in cat.get("stats", [])}
-                            if stats.get("overs", 0) > 0 and stats.get("dots", 0) > 0:
-                                dots_by_bowler[name] = dots_by_bowler.get(name, 0) + stats["dots"]
-
-        if not dots_by_bowler:
-            print(f"    No dot ball data from ESPN")
-            return 0
-
-        updated = 0
-        for bowler_name, dots in dots_by_bowler.items():
-            clean = bowler_name.strip().lower()
-            player = players_by_name.get(clean)
-            if not player:
-                last = clean.split()[-1] if clean else ""
-                player = players_by_name.get(last)
-            if not player:
-                for key, p in players_by_name.items():
-                    if clean.split()[-1] in key:
-                        player = p
-                        break
-            if not player:
-                continue
-
-            result = db.playerperformances.update_one(
-                {"playerId": player["_id"], "matchId": match_id, "oversBowled": {"$gt": 0}},
-                {"$set": {"dotBalls": dots}}
-            )
-            if result.modified_count > 0:
-                updated += 1
-
-        # Only mark espnMatchId as done when dots were actually written.
-        # If we save it before confirming writes, it blocks all future retries silently.
-        if updated > 0:
-            db.matches.update_one({"_id": match_id}, {"$set": {"espnMatchId": str(espn_id)}})
-
-        if updated > 0:
-            # Recalculate fantasy points for affected bowlers
-            perfs = list(db.playerperformances.find({"matchId": match_id}))
-            players_list = list(db.players.find({}))
-            pid_to_player = {str(p["_id"]): p for p in players_list}
-            player_points = {}
-
-            for perf in perfs:
-                pid = str(perf["playerId"])
-                p = pid_to_player.get(pid)
-                role = p.get("role", "batsman") if p else "batsman"
-                pts = calculate_fantasy_points(perf, role)
-                if pts != perf.get("fantasyPoints", 0):
-                    db.playerperformances.update_one(
-                        {"_id": perf["_id"]}, {"$set": {"fantasyPoints": pts}}
-                    )
-                player_points[pid] = pts
-
-            # Recalculate team totals
-            for team in db.fantasyteams.find({"matchId": match_id}):
-                total = 0.0
-                for p_id in team.get("players", []):
-                    base = player_points.get(str(p_id), 0)
-                    is_cap = str(team.get("captain")) == str(p_id)
-                    is_vc = str(team.get("viceCaptain")) == str(p_id)
-                    total += apply_multiplier(base, is_cap, is_vc)
-                db.fantasyteams.update_one({"_id": team["_id"]}, {"$set": {"totalPoints": round(total, 1)}})
-
-            print(f"    ESPN dot balls: {updated} bowlers patched, points recalculated")
-
-        return updated
-
-    except Exception as e:
-        print(f"    ESPN dot ball error: {e}")
-        return 0
-
-
 def detect_takeovers(db, match, team_scores, state):
     """
     Compare current leaderboard with previous snapshot.
@@ -2608,7 +2428,7 @@ def main():
             print(f"  Randomizer error: {e}")
 
 
-        # Build player name map once for ESPN dot ball lookups
+        # Build player name map once for IPL dot ball lookups
         _all_players = list(db.players.find({}))
         _pbn = {}
         for _p in _all_players:
@@ -2668,18 +2488,16 @@ def main():
                 if not result:
                     continue
 
-                # 7b. Fetch dot balls from ESPN for completed matches
+                # 7b. Fetch dot balls from IPL official feed for completed matches
                 if scorecard.get("is_complete"):
                     try:
                         # Re-fetch match to get updated status
                         fresh_match = db.matches.find_one({"_id": result["match"]["_id"]})
                         if fresh_match:
-                            # update_dot_balls_from_espn(db, fresh_match, _pbn)
                             updated = update_dot_balls_from_ipl(db, fresh_match, _pbn)
                             if updated == 0:
                                 print("No IPL dot ball updates applied")
                     except Exception as ipl_err:
-                        # print(f"    ESPN dot ball error: {espn_err}")
                         print(f"IPL dot ball error: {ipl_err}")
 
                 # 8. Detect leaderboard takeovers
