@@ -2331,6 +2331,195 @@ def send_squad_announcement(db, match, state):
     print(f"    Squad announcement sent for {t1_name} vs {t2_name}")
 
 
+from ipl_official_feed import IPLOfficialFeed, IPLFeedError
+
+# Shared IPL feed client — keeps matchlinks cache + HTTP session warm
+# across all match iterations in a single scraper run.
+_ipl_client = None
+
+def _get_ipl_client():
+    global _ipl_client
+    if _ipl_client is None:
+        _ipl_client = IPLOfficialFeed(season="2026")
+    return _ipl_client
+
+
+def _clean_ipl_player_name(raw_name):
+    """
+    Normalise player names from the IPL official feed by stripping role markers.
+    IPL feed decorates names with (c), (wk), (IP), (RP), etc. — we only want
+    the plain name for matching against DB player names / aliases.
+
+        'Finn Allen  (IP)'        -> 'finn allen'
+        'Ajinkya Rahane (c)'      -> 'ajinkya rahane'
+        'Varun Chakaravarthy (RP)'-> 'varun chakaravarthy'
+    """
+    if not raw_name:
+        return ""
+    idx = raw_name.find("(")
+    if idx != -1:
+        raw_name = raw_name[:idx]
+    return raw_name.strip().lower()
+
+def update_dot_balls_from_ipl(db, match, players_by_name):
+    """
+    Fetch dot balls from the IPL official S3 feed and patch
+    PlayerPerformance.dotBalls for a completed match.
+
+    SCOPE: Writes ONLY the dotBalls field on PlayerPerformance.
+    Does NOT recalculate fantasy points, team totals, or predictions —
+    those are handled by a separate recalc method.
+
+    ── Flow ─────────────────────────────────────────────────────────────
+    1. Skip if match already has iplMatchId set (idempotent).
+    2. Skip if match is not completed.
+    3. Skip if match has no team abbreviations.
+    4. Skip if ANY bowler in this match already has dotBalls > 0
+       (don't clobber data written by ESPN patcher or manual edits).
+    5. Look up the IPL smId via matchlinks (by team abbreviations).
+       Retry once with force_refresh if cache is stale.
+    6. Fetch the full match scoreboard (both innings required).
+       Terminate early on fetch failure or <2 innings.
+    7. Aggregate dot balls by cleaned lowercased bowler name.
+    8. Match each IPL bowler name to a DB player via players_by_name.
+       Primary + only tier: exact full-name / alias lookup.
+       Unmatched names are logged — operator fixes by adding an alias
+       to the player doc in Mongo, next run catches them.
+    9. For each matched bowler, $set PlayerPerformance.dotBalls.
+   10. Persist iplMatchId on the match doc so we don't re-run.
+
+    Returns:
+        int — number of PlayerPerformance records actually updated.
+    """
+    match_id = match["_id"]
+
+    # ── 1. Already processed ─────────────────────────────────────────────
+    if match.get("iplMatchId"):
+        return 0
+
+    # ── 2. Only completed matches ────────────────────────────────────────
+    if match.get("status") != "completed":
+        return 0
+
+    # ── 3. Need team abbreviations to look up the IPL smId ───────────────
+    team1 = (match.get("team1") or "").strip()
+    team2 = (match.get("team2") or "").strip()
+    if not team1 or not team2:
+        print(f"    IPL: no team abbreviations on match {match_id}; skipping")
+        return 0
+
+    # ── 4. Don't clobber existing dot ball data from another source ──────
+    # If ESPN patcher (or any prior run) already wrote dots > 0 for any
+    # bowler in this match, assume the data is authoritative and skip.
+    already_has_dots = db.playerperformances.find_one({
+        "matchId": match_id,
+        "oversBowled": {"$gt": 0},
+        "dotBalls": {"$gt": 0},
+    })
+    if already_has_dots:
+        print(f"    IPL: match {match_id} already has dot ball data; skipping")
+        return 0
+
+    # ── 5. Resolve team pair → IPL smId via matchlinks ───────────────────
+    client = _get_ipl_client()
+    try:
+        link = client.find_match_by_teams(team1, team2)
+        # Matchlinks cache may have been fetched before this match was
+        # published to the feed — force a refresh and retry once.
+        if not link:
+            client.fetch_match_links(force_refresh=True)
+            link = client.find_match_by_teams(team1, team2)
+        if not link:
+            print(f"    IPL: matchlinks has no entry for {team1} vs {team2}; will retry next cycle")
+            return 0
+
+        # ── 6. Fetch full scoreboard (both innings) ──────────────────────
+        print(f"    Fetching IPL scoreboard (smId {link.match_id}) for {team1} vs {team2}...")
+        scoreboard = client.fetch_scoreboard(link.match_id)
+    except IPLFeedError as e:
+        print(f"    IPL fetch failed: {e} — terminating")
+        return 0
+    except Exception as e:
+        print(f"    IPL unexpected error: {e} — terminating")
+        return 0
+
+    # Require both innings to be present. A partial scoreboard means the
+    # IPL feed publication is mid-cycle — retry next pass instead of
+    # partial-patching and leaving ambiguous state in the DB.
+    if len(scoreboard.innings) < 2:
+        print(f"    IPL: got {len(scoreboard.innings)} innings (expected 2) — terminating")
+        return 0
+
+    # ── 7. Aggregate dot balls per cleaned lowercased name ───────────────
+    # A single bowler only ever bowls in one innings per match (they bowl
+    # when the opposition bats), so summing across innings is safe.
+    dots_by_clean_name = {}
+    for inn in scoreboard.innings:
+        for bowler in inn.bowling:
+            clean = _clean_ipl_player_name(bowler.name)
+            if not clean:
+                continue
+            dots_by_clean_name[clean] = dots_by_clean_name.get(clean, 0) + bowler.dot_balls
+
+    if not dots_by_clean_name:
+        print(f"    IPL: no bowling data in scoreboard — terminating")
+        return 0
+
+    # ── 8. Match IPL names → DB players (tier-1 exact match only) ────────
+    # players_by_name is pre-built at the top of the scraper and contains:
+    #   - cleaned lowercased full names     ("jasprit bumrah")
+    #   - last-name keys                    ("bumrah")
+    #   - all aliases from each player doc  ("j bumrah", "jazz", etc.)
+    # So a simple .get() hits all three — no separate "alias tier" needed.
+    #
+    # If a name does NOT match, we log it. The remediation workflow is:
+    #   1. Operator reads the log
+    #   2. Adds the unmatched name to player.aliases in Mongo
+    #   3. Next scraper run catches it cleanly via tier 1
+    # This is safer than fuzzy matching (no last-name collision risk between
+    # e.g. "Hardik Pandya" and "Krunal Pandya").
+    updated = 0
+    unmatched = []
+
+    for clean_name, dots in dots_by_clean_name.items():
+        player = players_by_name.get(clean_name)
+
+        if not player:
+            unmatched.append(clean_name)
+            continue
+
+        # ── 9. Write dotBalls to PlayerPerformance ───────────────────────
+        # Filter includes oversBowled > 0 to protect against accidentally
+        # writing dot balls onto a pure-fielder's performance row.
+        result = db.playerperformances.update_one(
+            {
+                "playerId": player["_id"],
+                "matchId": match_id,
+                "oversBowled": {"$gt": 0},
+            },
+            {"$set": {"dotBalls": int(dots)}},
+        )
+        if result.modified_count > 0:
+            updated += 1
+
+    if unmatched:
+        print(f"    IPL: {len(unmatched)} bowler name(s) not matched — "
+              f"add as aliases to the respective player docs in Mongo: {unmatched}")
+
+    if updated == 0:
+        print(f"    IPL: 0 records updated; not marking iplMatchId")
+        return 0
+
+    # ── 10. Persist iplMatchId on the match doc ──────────────────────────
+    # Once this is set, guard #1 short-circuits future runs for this match.
+    db.matches.update_one(
+        {"_id": match_id},
+        {"$set": {"iplMatchId": link.match_id}},
+    )
+
+    print(f"    IPL dot balls: {updated} bowler(s) patched (smId={link.match_id})")
+    return updated
+
 # ─── Main ───
 def main():
     now = datetime.now(IST)
@@ -2511,9 +2700,13 @@ def main():
                         # Re-fetch match to get updated status
                         fresh_match = db.matches.find_one({"_id": result["match"]["_id"]})
                         if fresh_match:
-                            update_dot_balls_from_espn(db, fresh_match, _pbn)
-                    except Exception as espn_err:
-                        print(f"    ESPN dot ball error: {espn_err}")
+                            # update_dot_balls_from_espn(db, fresh_match, _pbn)
+                            updated = update_dot_balls_from_ipl(db, fresh_match, _pbn)
+                            if updated == 0:
+                                print("No IPL dot ball updates applied")
+                    except Exception as ipl_err:
+                        # print(f"    ESPN dot ball error: {espn_err}")
+                        print(f"IPL dot ball error: {ipl_err}")
 
                 # 8. Detect leaderboard takeovers
                 try:
