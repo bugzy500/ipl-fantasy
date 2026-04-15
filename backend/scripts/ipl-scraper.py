@@ -62,6 +62,9 @@ TEAM_MAP = {
     "gujarat titans": "GT",
 }
 
+MATH_CORRECT_PREDICTION_POINTS = 50
+SUPER_OVER_CORRECT_PREDICTION_POINTS = 150
+
 
 # ─── Scoring Rules (matches backend/src/services/scoring.service.js) ───
 def calculate_fantasy_points(perf, role):
@@ -1364,13 +1367,13 @@ def update_match_scores(db, cb_match_id, scorecard):
         preds = list(db.predictions.find({"matchId": match_id}))
         for pred in preds:
             is_correct = pred.get("predictedWinner") == winner
-            bonus = 25 if is_correct else 0
+            bonus = MATH_CORRECT_PREDICTION_POINTS if is_correct else 0
             # Super-over prediction bonus
             if pred.get("predictionType") == "superover":
                 result_text = match.get("result", "")
                 has_super_over = "super over" in result_text.lower() if result_text else False
                 is_correct = has_super_over
-                bonus = 80 if is_correct else 0
+                bonus = SUPER_OVER_CORRECT_PREDICTION_POINTS if is_correct else 0
             db.predictions.update_one(
                 {"_id": pred["_id"]},
                 {"$set": {"isCorrect": is_correct, "bonusPoints": bonus}}
