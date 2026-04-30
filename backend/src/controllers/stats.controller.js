@@ -4,11 +4,38 @@ const Match = require('../models/Match.model');
 const Prediction = require('../models/Prediction.model');
 const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
+// ── Prize structure split: 2026-04-29 (last old match) vs 2026-04-30 (new rules) ──
+// Old: 9 original players × ₹60. New: 13 originals × ₹60 + 4 new × ₹50.
+const NEW_RULES_CUTOFF = new Date('2026-04-30T00:00:00.000Z');
+
+// 4 members added 2026-04-30 at ₹50/match, excluded from season awards
+const NEW_MEMBER_IDS = new Set([
+  '69f339fb344710fa2f7f847c', // Akash
+  '69f33a01344710fa2f7f8487', // Cheeku (Juhi)
+  '69f33af6344710fa2f7f8560', // Prachi
+  '69cd2b4a1b45394ca935d602', // DSP (Arvind)
+]);
+
+// Prize tables
+const OLD_PRIZE_TABLE  = [150, 130, 110, 90, 70, 50];           // pre-Apr 30, 6 positions
+const NEW_PRIZE_TABLE  = [160, 140, 120, 100, 85, 75, 65, 55, 50]; // from Apr 30, 9 positions
+const ENTRY_FEE_OLD    = 60;
+const ENTRY_FEE_NEW    = 60; // original members still pay ₹60
+const ENTRY_FEE_NEWMEM = 50; // new members pay ₹50
+
+function getPrizeTable(matchDate) {
+  return matchDate >= NEW_RULES_CUTOFF ? NEW_PRIZE_TABLE : OLD_PRIZE_TABLE;
+}
+function getEntryFee(userId, matchDate) {
+  if (matchDate < NEW_RULES_CUTOFF) return ENTRY_FEE_OLD;
+  return NEW_MEMBER_IDS.has(String(userId)) ? ENTRY_FEE_NEWMEM : ENTRY_FEE_NEW;
+}
+
 // GET /api/stats/season-insights
 // Returns leaderboard variations: best captain, most consistent, biggest gainer, best predictor
 const getSeasonInsights = async (req, res) => {
   try {
-    const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 result');
+    const completedMatches = await Match.find({ status: 'completed' }).select('_id team1 team2 result scheduledAt');
     const matchIds = completedMatches.map(m => m._id);
     const activeMemberIds = await getActiveLeagueMemberIds();
 
@@ -77,9 +104,7 @@ const getSeasonInsights = async (req, res) => {
       .map(([id, d]) => ({ userId: id, userName: d.name, value: d.count, label: `${d.count}/${matchIds.length} correct` }))
       .sort((a, b) => b.value - a.value)[0] || null;
 
-    // --- Real Money: ₹60/match, top-5 payout (150/125/100/75/50), rest → award pool ---
-    const ENTRY_FEE = 60;
-    const PRIZE_TABLE = [150, 130, 110, 90, 70, 50]; // 1st through 6th
+    // --- Real Money: prize structure split at 2026-04-30 ---
     const moneyByUser = {};
     let totalAwardPool = 0;
 
@@ -87,8 +112,12 @@ const getSeasonInsights = async (req, res) => {
       const matchTeams = allTeams.filter(t => String(t.matchId) === String(matchId));
       if (matchTeams.length === 0) continue;
 
-      const pot = matchTeams.length * ENTRY_FEE;
-      const prizeSum = PRIZE_TABLE.reduce((a, b) => a + b, 0);
+      const match = completedMatches.find(m => String(m._id) === String(matchId));
+      const matchDate = match?.scheduledAt ?? new Date(0);
+      const prizeTable = getPrizeTable(matchDate);
+
+      const pot = matchTeams.reduce((sum, t) => sum + getEntryFee(t.userId._id, matchDate), 0);
+      const prizeSum = prizeTable.reduce((a, b) => a + b, 0);
       totalAwardPool += Math.max(0, pot - prizeSum);
 
       // Rank teams by totalPoints
@@ -99,21 +128,18 @@ const getSeasonInsights = async (req, res) => {
       let prizeIdx = 0;
       let i = 0;
       while (i < ranked.length) {
-        // Find tie group
         let j = i;
         while (j < ranked.length && ranked[j].totalPoints === ranked[i].totalPoints) j++;
         const tieCount = j - i;
 
-        // Sum prizes for positions in this tie group
         let tieTotal = 0;
-        for (let k = prizeIdx; k < Math.min(prizeIdx + tieCount, PRIZE_TABLE.length); k++) {
-          tieTotal += PRIZE_TABLE[k];
+        for (let k = prizeIdx; k < Math.min(prizeIdx + tieCount, prizeTable.length); k++) {
+          tieTotal += prizeTable[k];
         }
         const shareEach = tieCount > 0 ? tieTotal / tieCount : 0;
 
         for (let k = i; k < j; k++) {
-          const uid = String(ranked[k].userId._id);
-          prizeByUid[uid] = shareEach;
+          prizeByUid[String(ranked[k].userId._id)] = shareEach;
         }
 
         prizeIdx += tieCount;
@@ -123,7 +149,7 @@ const getSeasonInsights = async (req, res) => {
       for (const t of matchTeams) {
         const uid = String(t.userId._id);
         if (!moneyByUser[uid]) moneyByUser[uid] = { name: t.userId.name, invested: 0, won: 0 };
-        moneyByUser[uid].invested += ENTRY_FEE;
+        moneyByUser[uid].invested += getEntryFee(uid, matchDate);
         moneyByUser[uid].won += prizeByUid[uid] || 0;
       }
     }
@@ -162,7 +188,10 @@ const getSeasonAwards = async (req, res) => {
 
     if (matchIds.length === 0 || activeMemberIds.length === 0) return res.json({ awards: [] });
 
-    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
+    // Season awards exclude new members (joined 2026-04-30, can't compete on full-season basis)
+    const eligibleMemberIds = activeMemberIds.filter(id => !NEW_MEMBER_IDS.has(String(id)));
+
+    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: eligibleMemberIds } })
       .populate('userId', 'name')
       .populate('captain', 'name role')
       .populate('viceCaptain', 'name role')
@@ -172,7 +201,7 @@ const getSeasonAwards = async (req, res) => {
     const allPerfs = await PlayerPerformance.find({ matchId: { $in: matchIds } })
       .populate('playerId', 'name role');
 
-    const predictions = (await Prediction.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
+    const predictions = (await Prediction.find({ matchId: { $in: matchIds }, userId: { $in: eligibleMemberIds } })
       .populate('userId', 'name'))
       .filter((prediction) => prediction.userId != null);
 

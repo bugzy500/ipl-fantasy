@@ -73,6 +73,7 @@ const getSeasonLeaderboard = async (req, res) => {
           userName: '$user.name',
           totalPoints: 1,
           matchesPlayed: 1,
+          avgPointsPerMatch: { $round: [{ $divide: ['$totalPoints', '$matchesPlayed'] }, 1] },
         },
       },
     ]);

@@ -20,6 +20,10 @@ const FRIENDS = [
   { name: 'Rahul Sharma', email: 'rahul@ipl.local', phone: '919694588842', password: 'ipl2026!' },
   { name: 'Shubham Sharma', email: 'shubham@ipl.local', phone: '918384894616', password: 'ipl2026!' },
   { name: 'Nishant', email: 'nishant@ipl.local', phone: '918200994835', password: 'ipl2026!' },
+  // Added 2026-04-30 — joining for remaining 29 matches at ₹50/match
+  { name: 'Akash Mani Tripathi', email: 'akash@ipl.local', phone: '919748055509', password: 'ipl2026!' },
+  { name: 'Juhi', email: 'juhi@ipl.local', phone: '919982859492', password: 'ipl2026!' },
+  { name: 'Prachi', email: 'prachi@ipl.local', phone: '', password: 'ipl2026!' },
 ];
 
 async function seed() {

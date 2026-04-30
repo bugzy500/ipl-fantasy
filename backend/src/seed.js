@@ -168,6 +168,7 @@ const PLAYERS = [
   { name: 'Mayank Rawat', franchise: 'MI', role: 'AR', credits: 5.5 },
   { name: 'Danish Malewar', franchise: 'MI', role: 'BAT', credits: 5.5 },
   { name: 'Mohammad Izhar', franchise: 'MI', role: 'BOWL', credits: 5.5 },
+  { name: 'AM Ghazanfar', franchise: 'MI', role: 'BOWL', credits: 7 },
 
   // ── PBKS ─────────────────────────────────────────────────────────────────
   { name: 'Shreyas Iyer', franchise: 'PBKS', role: 'BAT', credits: 10 },
