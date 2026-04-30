@@ -17,7 +17,7 @@ const NEW_MEMBER_IDS = new Set([
 ]);
 
 // Prize tables
-const OLD_PRIZE_TABLE  = [150, 130, 110, 90, 70, 50];           // pre-Apr 30, 6 positions
+const OLD_PRIZE_TABLE  = [150, 130, 110, 90, 70, 50, 40];        // pre-Apr 30, 7 positions
 const NEW_PRIZE_TABLE  = [160, 140, 120, 100, 85, 75, 65, 55, 50]; // from Apr 30, 9 positions
 const ENTRY_FEE_OLD    = 60;
 const ENTRY_FEE_NEW    = 60; // original members still pay ₹60
