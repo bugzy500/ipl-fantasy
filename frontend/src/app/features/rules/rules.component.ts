@@ -298,8 +298,8 @@ export class RulesComponent {
     {
       key: 'predictions', title: 'Match Predictions', icon: 'psychology', color: '#F59E0B',
       rules: [
-        { label: 'Correct winner prediction', points: 25, displayPoints: '+25', note: 'Predict the winning team before the match starts.' },
-        { label: 'Correct super over prediction', points: 80, displayPoints: '+80', note: 'Predict the match goes to a super over. Higher risk, higher reward.' },
+        { label: 'Correct winner prediction', points: 50, displayPoints: '+50', note: 'Predict the winning team before the match starts.' },
+        { label: 'Correct super over prediction', points: 150, displayPoints: '+150', note: 'Predict the match goes to a super over. Higher risk, higher reward.' },
         { label: 'Wrong or no prediction', points: 0, displayPoints: '0', note: 'No penalty for wrong predictions.' },
       ],
     },

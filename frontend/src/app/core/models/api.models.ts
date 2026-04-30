@@ -60,6 +60,29 @@ export interface FantasyTeam {
   isLocked: boolean;
 }
 
+export interface UserBreakdownTeamPlayer {
+  player: Player;
+  performance: PlayerPerformance | null;
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+}
+
+export interface UserBreakdownPrediction {
+  type: 'winner' | 'superover';
+  predictedWinner: string;
+  isCorrect: boolean | null;
+  bonusPoints: number;
+}
+
+export interface UserBreakdownTeam {
+  teamId: string;
+  match: Match;
+  totalPoints: number;
+  players: UserBreakdownTeamPlayer[];
+  predictionBonus: number;
+  predictionDetails: UserBreakdownPrediction[];
+}
+
 export interface PlayerPerformance {
   _id: string;
   playerId: Player;
@@ -181,12 +204,38 @@ export interface SeasonInsight {
   label: string;
 }
 
+
+export interface SeasonEndAward {
+  type: string;
+  icon: string;
+  title: string;
+  winner: string;
+  value: string;
+  runnerUp: { name: string; value: string } | null;
+  gap: string | null;
+}
+
+export interface SeasonEndAwardsResponse {
+  awards: SeasonEndAward[];
+  matchesPlayed: number;
+}
+
+export interface MoneyMatchDetail {
+  matchLabel: string;
+  matchDate: string;
+  rank: number;
+  points: number;
+  won: number;
+  net: number;
+}
+
 export interface MoneyEntry {
   userId: string;
   userName: string;
   invested: number;
   won: number;
   net: number;
+  matches?: MoneyMatchDetail[];
 }
 
 export interface SeasonInsightsResponse {

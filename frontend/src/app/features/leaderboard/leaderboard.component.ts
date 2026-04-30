@@ -1,18 +1,22 @@
 import { Component, inject, signal, resource } from '@angular/core';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { LeaderboardEntry, Award, SeasonInsight, MoneyEntry, SeasonInsightsResponse } from '../../core/models/api.models';
 import { firstValueFrom } from 'rxjs';
+import { PointBreakdownDialogComponent } from '../../shared/components/point-breakdown-dialog/point-breakdown-dialog.component';
+import { SeasonEndAward } from '../../core/models/api.models';
 
 @Component({
   selector: 'app-leaderboard',
   standalone: true,
-  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, FormsModule],
+  imports: [MatTabsModule, MatProgressSpinnerModule, MatIconModule, MatSelectModule, MatFormFieldModule, FormsModule, MatDialogModule],
   template: `
     <div class="space-y-6 fade-up">
       <h1 class="text-display text-2xl font-semibold" style="color: var(--color-text);">
@@ -28,7 +32,8 @@ import { firstValueFrom } from 'rxjs';
             }
             <div class="mt-6 space-y-3">
               @for (entry of seasonLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-                <div class="flex items-center gap-4 p-4 rounded-xl transition-all stagger-item fade-up"
+                <div class="flex items-center gap-4 p-4 rounded-xl transition-all stagger-item fade-up cursor-pointer hover:brightness-110"
+                     (click)="openBreakdown(entry.userId, entry.userName)"
                      [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                      [style.border]="i < 3 ? '1px solid ' + rankBorderColor(i) : '1px solid var(--color-border)'">
                   <div class="w-10 h-10 flex items-center justify-center rounded-full text-display font-bold"
@@ -74,19 +79,37 @@ import { firstValueFrom } from 'rxjs';
         <!-- Match Leaderboard -->
         <mat-tab label="Match">
           <div class="mt-6 space-y-4">
-            <mat-select [(ngModel)]="selectedMatchId" placeholder="Select a completed match">
-              @for (match of completedMatches.value() ?? []; track match._id) {
-                <mat-option [value]="match._id">
-                  {{ match.team1 }} vs {{ match.team2 }} - {{ formatDate(match.scheduledAt) }}
-                </mat-option>
-              }
-            </mat-select>
+            <!-- Filters row -->
+            <div class="flex gap-3">
+              <!-- Team filter -->
+              <mat-form-field appearance="outline" class="flex-1" style="--mdc-outlined-text-field-outline-color: var(--color-border); --mdc-outlined-text-field-hover-outline-color: var(--color-accent); --mdc-outlined-text-field-focus-outline-color: var(--color-accent); --mat-select-trigger-text-size: 13px;">
+                <mat-label style="color: var(--color-text-muted); font-size: 13px;">Filter by team</mat-label>
+                <mat-select [value]="selectedTeamFilter()" (selectionChange)="selectedTeamFilter.set($event.value); selectedMatchId.set('')">
+                  @for (team of completedMatchTeams(); track team) {
+                    <mat-option [value]="team">{{ team }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Match selector -->
+              <mat-form-field appearance="outline" class="flex-[2]" style="--mdc-outlined-text-field-outline-color: var(--color-border); --mdc-outlined-text-field-hover-outline-color: var(--color-accent); --mdc-outlined-text-field-focus-outline-color: var(--color-accent); --mat-select-trigger-text-size: 13px;">
+                <mat-label style="color: var(--color-text-muted); font-size: 13px;">Select a match</mat-label>
+                <mat-select [value]="selectedMatchId()" (selectionChange)="selectedMatchId.set($event.value)" placeholder="Select a match">
+                  @for (match of filteredCompletedMatches(); track match._id) {
+                    <mat-option [value]="match._id">
+                      {{ match.team1 }} vs {{ match.team2 }} — {{ formatDate(match.scheduledAt) }}
+                    </mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            </div>
 
             @if (matchLeaderboard.isLoading()) {
               <div class="flex justify-center p-8"><mat-spinner diameter="40" /></div>
             }
             @for (entry of matchLeaderboard.value() ?? []; track entry.userId; let i = $index) {
-              <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+              <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up cursor-pointer hover:brightness-110"
+                   (click)="openBreakdown(entry.userId, entry.userName, selectedMatchId())"
                    [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                    style="border: 1px solid var(--color-border);">
                 <span class="w-8 text-center text-display font-bold"
@@ -171,26 +194,39 @@ import { firstValueFrom } from 'rxjs';
                 </span>
               </div>
               @for (award of seasonEndAwards.value()?.awards ?? []; track award.type) {
-                <div class="flex items-center gap-4 p-4 rounded-xl stagger-item fade-up"
+                <div class="rounded-xl stagger-item fade-up overflow-hidden"
                      style="background: var(--color-surface); border: 1px solid var(--color-border);">
-                  <div class="w-10 h-10 flex items-center justify-center rounded-full"
-                       [style.background]="seasonAwardBg(award.type)">
-                    <mat-icon style="font-size: 20px; width: 20px; height: 20px;"
-                              [style.color]="seasonAwardColor(award.type)">
-                      {{ award.icon }}
-                    </mat-icon>
-                  </div>
-                  <div class="flex-1">
-                    <div class="font-medium text-sm" style="color: var(--color-text);">
-                      {{ award.title }}
+                  <!-- Winner row -->
+                  <div class="flex items-center gap-3 px-4 py-3">
+                    <div class="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                         [style.background]="seasonAwardBg(award.type)">
+                      <mat-icon style="font-size: 18px; width: 18px; height: 18px;"
+                                [style.color]="seasonAwardColor(award.type)">
+                        {{ award.icon }}
+                      </mat-icon>
                     </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">
-                      {{ award.winner }}
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-subtle);">{{ award.title }}</div>
+                      <div class="font-semibold text-sm mt-0.5" style="color: var(--color-text);">🏆 {{ award.winner }}</div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                      <div class="text-display font-bold text-sm" style="color: var(--color-accent-hover);">{{ award.value }}</div>
+                      @if (award.gap) {
+                        <div class="text-[10px] mt-0.5" style="color: var(--color-success);">{{ award.gap }}</div>
+                      }
                     </div>
                   </div>
-                  <div class="text-display font-semibold text-sm" style="color: var(--color-accent-hover);">
-                    {{ award.value }}
-                  </div>
+                  <!-- Runner-up row -->
+                  @if (award.runnerUp) {
+                    <div class="flex items-center justify-between px-4 py-2"
+                         style="background: var(--color-surface-elevated); border-top: 1px solid var(--color-border);">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: var(--color-border); color: var(--color-text-subtle);">2nd</span>
+                        <span class="text-xs" style="color: var(--color-text-muted);">{{ award.runnerUp.name }}</span>
+                      </div>
+                      <span class="text-xs font-medium" style="color: var(--color-text-subtle);">{{ award.runnerUp.value }}</span>
+                    </div>
+                  }
                 </div>
               }
               @if ((seasonEndAwards.value()?.awards?.length ?? 0) === 0 && !seasonEndAwards.isLoading()) {
@@ -215,7 +251,7 @@ import { firstValueFrom } from 'rxjs';
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Hisaab Kitaab</h3>
                 <div class="text-right">
-                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 5 win</span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 6 win</span>
                   @if ((seasonInsights.value()?.awardPool ?? 0) > 0) {
                     <div class="text-xs font-medium" style="color: var(--color-warning);">
                       Award Pool: ₹{{ seasonInsights.value()?.awardPool }}
@@ -224,34 +260,63 @@ import { firstValueFrom } from 'rxjs';
                 </div>
               </div>
               @for (entry of seasonInsights.value()?.money ?? []; track entry.userId; let i = $index) {
-                <div class="flex items-center gap-3 p-4 rounded-xl stagger-item fade-up"
+                <div class="rounded-xl stagger-item fade-up overflow-hidden"
                      [style.background]="entry.userId === auth.currentUser()?.id ? 'var(--color-accent-muted)' : 'var(--color-surface)'"
                      style="border: 1px solid var(--color-border);">
-                  <span class="w-8 text-center text-display font-bold"
-                        [style.color]="rankColor(i)">
-                    {{ i + 1 }}
-                  </span>
-                  <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
-                    account_balance_wallet
-                  </mat-icon>
-                  <div class="flex-1">
-                    <div class="font-medium text-sm" style="color: var(--color-text);">
-                      {{ entry.userName }}
-                      @if (entry.userId === auth.currentUser()?.id) {
-                        <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
+                  <div class="flex items-center gap-3 p-4 cursor-pointer" (click)="toggleMoneyExpand(entry.userId)">
+                    <span class="w-8 text-center text-display font-bold"
+                          [style.color]="rankColor(i)">
+                      {{ i + 1 }}
+                    </span>
+                    <mat-icon style="color: var(--color-text-subtle); font-size: 20px; width: 20px; height: 20px;">
+                      account_balance_wallet
+                    </mat-icon>
+                    <div class="flex-1">
+                      <div class="font-medium text-sm" style="color: var(--color-text);">
+                        {{ entry.userName }}
+                        @if (entry.userId === auth.currentUser()?.id) {
+                          <span class="text-xs ml-1" style="color: var(--color-accent);">(You)</span>
+                        }
+                      </div>
+                      <div class="text-xs" style="color: var(--color-text-muted);">
+                        Invested: {{ entry.invested }} · Won: {{ entry.won }}
+                      </div>
+                    </div>
+                    <div class="text-right flex items-center gap-2">
+                      <div>
+                        <div class="text-display font-bold text-lg"
+                             [style.color]="entry.net > 0 ? 'var(--color-success)' : entry.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                          {{ entry.net > 0 ? '+' : '' }}{{ entry.net }}
+                        </div>
+                        <div class="text-xs" style="color: var(--color-text-muted);">net</div>
+                      </div>
+                      <mat-icon style="color: var(--color-text-subtle); font-size: 18px; width: 18px; height: 18px; transition: transform 200ms ease-out;"
+                                [style.transform]="expandedMoneyUser() === entry.userId ? 'rotate(180deg)' : 'rotate(0)'">
+                        expand_more
+                      </mat-icon>
+                    </div>
+                  </div>
+                  @if (expandedMoneyUser() === entry.userId && entry.matches?.length) {
+                    <div class="px-4 pb-3 space-y-1" style="border-top: 1px solid var(--color-border);">
+                      <div class="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 py-1.5 text-xs font-medium" style="color: var(--color-text-subtle);">
+                        <span>Match</span>
+                        <span class="text-center w-8">#</span>
+                        <span class="text-right w-12">Won</span>
+                        <span class="text-right w-12">Net</span>
+                      </div>
+                      @for (m of entry.matches; track m.matchLabel) {
+                        <div class="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 py-1.5 text-xs" style="border-top: 1px solid var(--color-border-subtle, rgba(255,255,255,0.05));">
+                          <span style="color: var(--color-text-muted);">{{ m.matchLabel }}</span>
+                          <span class="text-center w-8 font-medium" [style.color]="m.rank <= 3 ? rankColor(m.rank - 1) : 'var(--color-text-muted)'">{{ m.rank }}</span>
+                          <span class="text-right w-12" style="color: var(--color-text);">₹{{ m.won }}</span>
+                          <span class="text-right w-12 font-medium"
+                                [style.color]="m.net > 0 ? 'var(--color-success)' : m.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
+                            {{ m.net > 0 ? '+' : '' }}{{ m.net }}
+                          </span>
+                        </div>
                       }
                     </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">
-                      Invested: {{ entry.invested }} · Won: {{ entry.won }}
-                    </div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-display font-bold text-lg"
-                         [style.color]="entry.net > 0 ? 'var(--color-success)' : entry.net < 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'">
-                      {{ entry.net > 0 ? '+' : '' }}{{ entry.net }}
-                    </div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">net</div>
-                  </div>
+                  }
                 </div>
               }
               @if ((seasonInsights.value()?.money?.length ?? 0) === 0 && !seasonInsights.isLoading()) {
@@ -272,8 +337,24 @@ import { firstValueFrom } from 'rxjs';
 export class LeaderboardComponent {
   readonly auth = inject(AuthService);
   private readonly api = inject(ApiService);
+  private readonly dialog = inject(MatDialog);
+
+  openBreakdown(userId: string, userName: string, matchId?: string) {
+    this.dialog.open(PointBreakdownDialogComponent, {
+      data: { userId, userName, matchId: matchId || null },
+      width: '100%',
+      maxWidth: '500px',
+      panelClass: 'bottom-sheet-dialog'
+    });
+  }
 
   readonly selectedMatchId = signal<string>('');
+  readonly selectedTeamFilter = signal<string>('ALL');
+  readonly expandedMoneyUser = signal<string>('');
+
+  toggleMoneyExpand(userId: string): void {
+    this.expandedMoneyUser.set(this.expandedMoneyUser() === userId ? '' : userId);
+  }
 
   readonly seasonLeaderboard = resource({
     loader: () => firstValueFrom(this.api.getSeasonLeaderboard()),
@@ -286,6 +367,20 @@ export class LeaderboardComponent {
     },
   });
 
+  completedMatchTeams(): string[] {
+    const matches = this.completedMatches.value() ?? [];
+    const teams = new Set<string>();
+    matches.forEach(m => { teams.add(m.team1); teams.add(m.team2); });
+    return ['ALL', ...Array.from(teams).sort()];
+  }
+
+  filteredCompletedMatches() {
+    const matches = this.completedMatches.value() ?? [];
+    const team = this.selectedTeamFilter();
+    if (!team || team === 'ALL') return matches;
+    return matches.filter(m => m.team1 === team || m.team2 === team);
+  }
+
   readonly seasonAwards = resource({
     loader: () => firstValueFrom(this.api.getSeasonAwards()),
   });
@@ -295,7 +390,7 @@ export class LeaderboardComponent {
   });
 
   readonly seasonEndAwards = resource({
-    loader: () => firstValueFrom(this.api.getSeasonEndAwards()),
+    loader: (): Promise<import('../../core/models/api.models').SeasonEndAwardsResponse> => firstValueFrom(this.api.getSeasonEndAwards()),
   });
 
   readonly matchLeaderboard = resource({
@@ -385,22 +480,22 @@ export class LeaderboardComponent {
   }
 
   seasonAwardBg(type: string): string {
-    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
-    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
-    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
-    if (warm.includes(type)) return 'rgba(245, 158, 11, 0.15)';
-    if (cool.includes(type)) return 'rgba(124, 58, 237, 0.15)';
-    if (fun.includes(type)) return 'rgba(239, 68, 68, 0.1)';
+    const gold = ['max_single_match', 'top3_finishes', 'highest_total', 'best_captain', 'best_vc', 'best_predictor'];
+    const purple = ['the_batsman', 'the_bowler', 'the_allrounder', 'position_lover', 'jack_of_all'];
+    const red = ['lowest_total', 'worst_captain', 'worst_vc', 'pity_award', 'worst_predictor', 'lowest_top7', 'lowest_bowling', 'lowest_batting', 'lowest_allrounder'];
+    if (gold.includes(type)) return 'rgba(245, 158, 11, 0.15)';
+    if (purple.includes(type)) return 'rgba(124, 58, 237, 0.15)';
+    if (red.includes(type)) return 'rgba(239, 68, 68, 0.1)';
     return 'var(--color-surface-elevated)';
   }
 
   seasonAwardColor(type: string): string {
-    const warm = ['max_single_match', 'highest_total', 'best_captain_total', 'best_vc_total'];
-    const cool = ['the_batsman', 'the_bowler', 'all_rounder', 'best_predictor'];
-    const fun = ['pity_award', 'position_lover', 'jack_of_all', 'lowest_total'];
-    if (warm.includes(type)) return '#F59E0B';
-    if (cool.includes(type)) return '#7C3AED';
-    if (fun.includes(type)) return '#EF4444';
+    const gold = ['max_single_match', 'top3_finishes', 'highest_total', 'best_captain', 'best_vc', 'best_predictor'];
+    const purple = ['the_batsman', 'the_bowler', 'the_allrounder', 'position_lover', 'jack_of_all'];
+    const red = ['lowest_total', 'worst_captain', 'worst_vc', 'pity_award', 'worst_predictor', 'lowest_top7', 'lowest_bowling', 'lowest_batting', 'lowest_allrounder'];
+    if (gold.includes(type)) return '#F59E0B';
+    if (purple.includes(type)) return '#7C3AED';
+    if (red.includes(type)) return '#EF4444';
     return 'var(--color-text-muted)';
   }
 }

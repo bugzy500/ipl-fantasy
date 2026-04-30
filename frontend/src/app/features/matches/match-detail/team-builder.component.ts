@@ -296,6 +296,7 @@ export class TeamBuilderComponent implements OnInit {
   readonly players = input.required<Player[]>();
   readonly deadline = input.required<string>();
   readonly matchStatus = input.required<MatchStatus>();
+  readonly hasPrediction = input<boolean>(false);
 
   private readonly api = inject(ApiService);
   private readonly snackBar = inject(MatSnackBar);
@@ -380,6 +381,7 @@ export class TeamBuilderComponent implements OnInit {
 
     if (!this.captain()) return 'Pick a Captain';
     if (!this.viceCaptain()) return 'Pick a Vice-Captain';
+    if (!this.hasPrediction()) return 'Make a win prediction above before submitting';
 
     return '';
   });

@@ -14,6 +14,7 @@ import {
   ScoringRulesResponse,
   ForecastResponse,
   ScenariosResponse,
+  SeasonEndAwardsResponse,
 } from '../models/api.models';
 
 /**
@@ -102,6 +103,10 @@ export class ApiService {
     return this.http.get<LeaderboardEntry[]>(`${this.base}/leaderboard/season`);
   }
 
+  getUserBreakdown(userId: string) {
+    return this.http.get<import('../models/api.models').UserBreakdownTeam[]>(`${this.base}/leaderboard/breakdown/${userId}`);
+  }
+
   // ── Awards ──────────────────────────────────────────────────────────────────
   getMatchAwards(matchId: string) {
     return this.http.get<Award[]>(`${this.base}/awards/match/${matchId}`);
@@ -163,7 +168,7 @@ export class ApiService {
   }
 
   getSeasonEndAwards() {
-    return this.http.get<any>(`${this.base}/stats/season-awards`);
+    return this.http.get<SeasonEndAwardsResponse>(`${this.base}/stats/season-awards`);
   }
 
   // ── Forecast ──────────────────────────────────────────────────────────────

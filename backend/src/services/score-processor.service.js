@@ -3,7 +3,7 @@ const FantasyTeam = require('../models/FantasyTeam.model');
 const Player = require('../models/Player.model');
 const Match = require('../models/Match.model');
 const Prediction = require('../models/Prediction.model');
-const { calculateFantasyPoints, applyMultiplier } = require('./scoring.service');
+const { calculateFantasyPoints, applyMultiplier, buildFantasyPointsBreakdown } = require('./scoring.service');
 const { calculateAwards } = require('./awards.service');
 const { evaluatePredictions } = require('./prediction-evaluator.service');
 
@@ -59,11 +59,12 @@ async function processPerformances(matchId, performances, { markCompleted = fals
     const player = await Player.findById(perf.playerId);
     if (!player) continue;
 
-    const fantasyPoints = calculateFantasyPoints(perf, player.role);
+    const scoreBreakdown = buildFantasyPointsBreakdown(perf, player.role);
+    const fantasyPoints = scoreBreakdown.total;
 
     await PlayerPerformance.findOneAndUpdate(
       { playerId: perf.playerId, matchId },
-      { ...perf, matchId, fantasyPoints },
+      { ...perf, matchId, fantasyPoints, scoreBreakdown },
       { upsert: true, new: true }
     );
 

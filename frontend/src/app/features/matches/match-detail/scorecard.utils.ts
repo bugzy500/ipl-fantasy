@@ -69,6 +69,7 @@ export function buildFallbackBreakdown(perf: PlayerPerformance): { total: number
     if (perf.wickets > 0) items.push({ label: 'Wickets', detail: `${perf.wickets} wickets x 25`, points: perf.wickets * 25 });
     if (perf.lbwBowledWickets > 0) items.push({ label: 'LBW / bowled bonus', detail: `${perf.lbwBowledWickets} wickets x 8`, points: perf.lbwBowledWickets * 8 });
     if (perf.maidens > 0) items.push({ label: 'Maiden overs', detail: `${perf.maidens} maidens x 12`, points: perf.maidens * 12 });
+    if (perf.dotBalls > 0) items.push({ label: 'Dot balls', detail: `${perf.dotBalls} dot balls x 2`, points: perf.dotBalls * 2 });
     if (perf.wickets >= 5) items.push({ label: '5-wicket haul bonus', detail: `${perf.wickets} wickets`, points: 16 });
     else if (perf.wickets >= 4) items.push({ label: '4-wicket haul bonus', detail: `${perf.wickets} wickets`, points: 8 });
 

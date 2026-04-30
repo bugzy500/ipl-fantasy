@@ -1,0 +1,170 @@
+{
+  "Innings2": {
+    "batting": [
+      {
+        "name": "Finn Allen  (IP)",
+        "runs": 1,
+        "balls": 3,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "33.33",
+        "outDesc": "c Shivam Dube b Anshul Kamboj"
+      },
+      {
+        "name": "Sunil Narine ",
+        "runs": 24,
+        "balls": 17,
+        "fours": 2,
+        "sixes": 2,
+        "sr": "141.18",
+        "outDesc": "c Gurjapneet Singh b Khaleel Ahmed"
+      },
+      {
+        "name": "Ajinkya Rahane (c)",
+        "runs": 28,
+        "balls": 22,
+        "fours": 0,
+        "sixes": 2,
+        "sr": "127.27",
+        "outDesc": "c Ruturaj Gaikwad b Noor Ahmad"
+      },
+      {
+        "name": "Angkrish Raghuvanshi (wk)",
+        "runs": 27,
+        "balls": 19,
+        "fours": 3,
+        "sixes": 1,
+        "sr": "142.11",
+        "outDesc": "c Dewald Brevis b Akeal Hosein"
+      },
+      {
+        "name": "Rinku Singh ",
+        "runs": 6,
+        "balls": 12,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "50.00",
+        "outDesc": "c Shivam Dube b Noor Ahmad"
+      },
+      {
+        "name": "Cameron Green ",
+        "runs": 0,
+        "balls": 1,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "0.00",
+        "outDesc": "b Noor Ahmad"
+      },
+      {
+        "name": "Rovman Powell ",
+        "runs": 31,
+        "balls": 22,
+        "fours": 1,
+        "sixes": 2,
+        "sr": "140.91",
+        "outDesc": "not out"
+      },
+      {
+        "name": "Ramandeep Singh ",
+        "runs": 35,
+        "balls": 23,
+        "fours": 4,
+        "sixes": 1,
+        "sr": "152.17",
+        "outDesc": "c Sarfaraz Khan b Anshul Kamboj"
+      },
+      {
+        "name": "Anukul Roy ",
+        "runs": 1,
+        "balls": 1,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "100.00",
+        "outDesc": "not out"
+      },
+      {
+        "name": "Vaibhav Arora ",
+        "runs": 0,
+        "balls": 0,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "-",
+        "outDesc": ""
+      },
+      {
+        "name": "Varun Chakaravarthy  (RP)",
+        "runs": 0,
+        "balls": 0,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "-",
+        "outDesc": ""
+      },
+      {
+        "name": "Kartik Tyagi ",
+        "runs": 0,
+        "balls": 0,
+        "fours": 0,
+        "sixes": 0,
+        "sr": "-",
+        "outDesc": ""
+      }
+    ],
+    "bowling": [
+      {
+        "name": "Khaleel Ahmed",
+        "overs": "3.5",
+        "maidens": 0,
+        "runs": 24,
+        "wickets": 1,
+        "dotBalls": 12,
+        "economy": "6.26"
+      },
+      {
+        "name": "Anshul Kamboj",
+        "overs": "4",
+        "maidens": 0,
+        "runs": 32,
+        "wickets": 2,
+        "dotBalls": 9,
+        "economy": "8"
+      },
+      {
+        "name": "Akeal Hosein (IP)",
+        "overs": "4",
+        "maidens": 0,
+        "runs": 26,
+        "wickets": 1,
+        "dotBalls": 7,
+        "economy": "6.5"
+      },
+      {
+        "name": "Noor Ahmad",
+        "overs": "4",
+        "maidens": 0,
+        "runs": 21,
+        "wickets": 3,
+        "dotBalls": 8,
+        "economy": "5.25"
+      },
+      {
+        "name": "Gurjapneet Singh",
+        "overs": "1.1",
+        "maidens": 0,
+        "runs": 23,
+        "wickets": 0,
+        "dotBalls": 1,
+        "economy": "19.71"
+      },
+      {
+        "name": "Jamie Overton",
+        "overs": "3",
+        "maidens": 0,
+        "runs": 32,
+        "wickets": 0,
+        "dotBalls": 6,
+        "economy": "10.67"
+      }
+    ]
+  }
+}

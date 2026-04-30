@@ -4,8 +4,8 @@ const Prediction = require('../models/Prediction.model');
  * Evaluate all predictions for a completed match.
  * Extracts match result and updates predictions accordingly.
  *
- * predictionType 'winner': +25 pts if predictedWinner matches result winner
- * predictionType 'superover': +80 pts if match went to super over
+ * predictionType 'winner': +50 pts if predictedWinner matches result winner
+ * predictionType 'superover': +150 pts if match went to super over
  *
  * @param {string} matchId - Match ID
  * @param {string} result - Match result string (e.g., "CSK won by 5 wickets", "MI won in super over")
@@ -35,14 +35,14 @@ async function evaluatePredictions(matchId, result) {
     let bonusPoints = 0;
 
     if (pred.predictionType === 'superover') {
-      // Superover bet: +80 if match went to super over, regardless of which team prediction
+      // Superover bet: +150 if match went to super over, regardless of which team prediction
       isCorrect = hasSuperover;
-      bonusPoints = isCorrect ? 80 : 0;
+      bonusPoints = isCorrect ? 150 : 0;
       if (isCorrect) superoverCorrect++;
     } else {
-      // Normal winner prediction: +25 if predicted team won
+      // Normal winner prediction: +50 if predicted team won
       isCorrect = pred.predictedWinner === winningTeam;
-      bonusPoints = isCorrect ? 25 : 0;
+      bonusPoints = isCorrect ? 50 : 0;
     }
 
     pred.isCorrect = isCorrect;
