@@ -242,6 +242,9 @@ export interface SeasonInsightsResponse {
   insights: SeasonInsight[];
   money: MoneyEntry[];
   awardPool?: number;
+  awardsCount?: number;
+  perAward?: number;
+  entryFee?: number;
 }
 
 // ── Forecast / Predictions ───────────────────────────────────────────────────

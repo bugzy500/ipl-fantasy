@@ -189,7 +189,15 @@ const getSeasonInsights = async (req, res) => {
       bestPredictor && { type: 'best_predictor', icon: 'psychology', ...bestPredictor },
     ].filter(Boolean);
 
-    res.json({ insights, money, entryFee: ENTRY_FEE_NEW, awardPool: totalAwardPool });
+    const AWARDS_COUNT = 20;
+    res.json({
+      insights,
+      money,
+      entryFee: ENTRY_FEE_NEW,
+      awardPool: Math.round(totalAwardPool),
+      awardsCount: AWARDS_COUNT,
+      perAward: Math.round(totalAwardPool / AWARDS_COUNT),
+    });
   } catch (err) {
     console.error('Stats error:', err);
     res.status(500).json({ message: err.message });

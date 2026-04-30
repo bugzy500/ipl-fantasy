@@ -251,10 +251,13 @@ import { SeasonEndAward } from '../../core/models/api.models';
               <div class="flex items-center justify-between mb-2">
                 <h3 class="text-display text-lg font-semibold" style="color: var(--color-text);">Hisaab Kitaab</h3>
                 <div class="text-right">
-                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/match · Top 6 win</span>
+                  <span class="text-xs" style="color: var(--color-text-muted);">₹60/₹50 · 16 members</span>
                   @if ((seasonInsights.value()?.awardPool ?? 0) > 0) {
                     <div class="text-xs font-medium" style="color: var(--color-warning);">
                       Award Pool: ₹{{ seasonInsights.value()?.awardPool }}
+                    </div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">
+                      {{ seasonInsights.value()?.awardsCount }} awards · ₹{{ seasonInsights.value()?.perAward }}/award
                     </div>
                   }
                 </div>
