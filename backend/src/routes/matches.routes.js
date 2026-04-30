@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { body } = require('express-validator');
-const { getMatches, getMatchById, createMatch, updateMatch, getMatchSquad } = require('../controllers/matches.controller');
+const { getMatches, getMatchById, createMatch, updateMatch, getMatchSquad, getMatchFantasyPicks } = require('../controllers/matches.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireAdmin } = require('../middleware/admin.middleware');
 
@@ -11,6 +11,7 @@ router.use(authenticate);
 router.get('/', getMatches);
 router.get('/:id', getMatchById);
 router.get('/:id/squad', getMatchSquad);
+router.get('/:id/fantasy-picks', getMatchFantasyPicks);
 
 router.post(
   '/',

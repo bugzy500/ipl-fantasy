@@ -60,6 +60,10 @@ export class ApiService {
     return this.http.get<MatchSquadResponse>(`${this.base}/matches/${id}/squad`);
   }
 
+  getMatchFantasyPicks(matchId: string) {
+    return this.http.get<Record<string, import('../models/api.models').FantasyPickEntry[]>>(`${this.base}/matches/${matchId}/fantasy-picks`);
+  }
+
   createMatch(data: Partial<Match>) {
     return this.http.post<Match>(`${this.base}/matches`, data);
   }

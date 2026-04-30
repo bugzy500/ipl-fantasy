@@ -1,6 +1,8 @@
 const { validationResult } = require('express-validator');
 const Match = require('../models/Match.model');
 const Player = require('../models/Player.model');
+const FantasyTeam = require('../models/FantasyTeam.model');
+const { getActiveLeagueMemberIds } = require('../services/league-members.service');
 
 // GET /api/matches
 const getMatches = async (req, res) => {
@@ -89,4 +91,41 @@ const getMatchSquad = async (req, res) => {
   }
 };
 
-module.exports = { getMatches, getMatchById, createMatch, updateMatch, getMatchSquad };
+// GET /api/matches/:id/fantasy-picks
+// Returns { [playerId]: [{ userName, isCaptain, isViceCaptain }] } for all active league members
+const getMatchFantasyPicks = async (req, res) => {
+  try {
+    const activeMemberIds = await getActiveLeagueMemberIds();
+
+    const teams = await FantasyTeam.find({
+      matchId: req.params.id,
+      userId: { $in: activeMemberIds },
+    })
+      .populate('userId', 'name')
+      .lean();
+
+    const picks = {};
+    for (const team of teams) {
+      if (!team.userId) continue;
+      const userName = team.userId.name;
+      const captainId = String(team.captain);
+      const vcId = String(team.viceCaptain);
+
+      for (const playerId of team.players) {
+        const key = String(playerId);
+        if (!picks[key]) picks[key] = [];
+        picks[key].push({
+          userName,
+          isCaptain: key === captainId,
+          isViceCaptain: key === vcId,
+        });
+      }
+    }
+
+    res.json(picks);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { getMatches, getMatchById, createMatch, updateMatch, getMatchSquad, getMatchFantasyPicks };

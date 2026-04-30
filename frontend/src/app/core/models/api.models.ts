@@ -247,6 +247,12 @@ export interface SeasonInsightsResponse {
   entryFee?: number;
 }
 
+export interface FantasyPickEntry {
+  userName: string;
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+}
+
 // ── Forecast / Predictions ───────────────────────────────────────────────────
 export interface ForecastEntry {
   userId: string;

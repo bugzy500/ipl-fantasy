@@ -3,7 +3,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatIconModule } from '@angular/material/icon';
 import { Subscription, interval, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
-import { MatchStatus, PlayerPerformance, ScoreBreakdownSection } from '../../../core/models/api.models';
+import { FantasyPickEntry, MatchStatus, PlayerPerformance, ScoreBreakdownSection } from '../../../core/models/api.models';
 import {
   breakdownSections as getBreakdownSections,
   displayPoints as getDisplayPoints,
@@ -137,6 +137,27 @@ const POLL_INTERVAL_MS = 30_000;
               @if (breakdownSections(perf).length === 0) {
                 <p class="text-xs" style="color: var(--color-text-muted);">No scoring events recorded yet.</p>
               }
+
+              <div class="breakdown-section">
+                <span class="text-label">Picked by</span>
+                @if (picksForPlayer(perf.playerId._id).length === 0) {
+                  <p class="text-xs" style="color: var(--color-text-muted);">No one picked this player.</p>
+                } @else {
+                  <div class="flex flex-wrap gap-2">
+                    @for (pick of picksForPlayer(perf.playerId._id); track pick.userName) {
+                      <span class="picker-chip">
+                        {{ pick.userName }}
+                        @if (pick.isCaptain) {
+                          <span class="pick-badge pick-badge--c">C</span>
+                        }
+                        @if (pick.isViceCaptain) {
+                          <span class="pick-badge pick-badge--vc">VC</span>
+                        }
+                      </span>
+                    }
+                  </div>
+                }
+              </div>
             </div>
           }
         </div>
@@ -265,6 +286,30 @@ const POLL_INTERVAL_MS = 30_000;
       font-family: var(--font-display);
       white-space: nowrap;
     }
+
+    .picker-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .pick-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      line-height: 1.4;
+    }
+    .pick-badge--c  { background: rgba(245, 158, 11, 0.2); color: #F59E0B; }
+    .pick-badge--vc { background: rgba(59, 130, 246, 0.2); color: #3B82F6; }
   `],
 })
 export class PlayerScoresTabComponent implements OnInit, OnDestroy {
@@ -274,6 +319,7 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
 
   readonly performances = signal<PlayerPerformance[]>([]);
+  readonly fantasyPicks = signal<Record<string, FantasyPickEntry[]>>({});
   readonly loading = signal(true);
   readonly error = signal('');
   readonly activeRole = signal<string>('ALL');
@@ -312,6 +358,11 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
+
+    this.api.getMatchFantasyPicks(this.matchId()).subscribe({
+      next: (picks) => this.fantasyPicks.set(picks),
+      error: () => {},
+    });
   }
 
   ngOnDestroy() {
@@ -320,6 +371,10 @@ export class PlayerScoresTabComponent implements OnInit, OnDestroy {
 
   toggleExpand(id: string) {
     this.expanded.set(this.expanded() === id ? null : id);
+  }
+
+  picksForPlayer(playerId: string): FantasyPickEntry[] {
+    return this.fantasyPicks()[playerId] ?? [];
   }
 
   strikeRate(p: PlayerPerformance): string {
