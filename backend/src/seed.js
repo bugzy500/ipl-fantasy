@@ -61,6 +61,7 @@ const PLAYERS = [
   { name: 'Lungi Ngidi', franchise: 'DC', role: 'BOWL', credits: 5.5 },
   { name: 'Kyle Jamieson', franchise: 'DC', role: 'BOWL', credits: 5.5 },
   { name: 'Auqib Dar', franchise: 'DC', role: 'AR', credits: 5.5 },
+  { name: 'Ben Duckett', franchise: 'DC', role: 'BAT', credits: 7.5 },
 
   // ── GT ───────────────────────────────────────────────────────────────────
   { name: 'Shubman Gill', franchise: 'GT', role: 'BAT', credits: 9.5 },
@@ -102,8 +103,8 @@ const PLAYERS = [
   { name: 'Anukul Roy', franchise: 'KKR', role: 'AR', credits: 6 },
   { name: 'Vaibhav Arora', franchise: 'KKR', role: 'BOWL', credits: 7 },
   { name: 'Umran Malik', franchise: 'KKR', role: 'BOWL', credits: 6.5 },
-  { name: 'Mohammad Shami', franchise: 'KKR', role: 'BOWL', credits: 9 },
-  { name: 'Mitchell Marsh', franchise: 'KKR', role: 'AR', credits: 7.5 },
+  { name: 'Akash Deep', franchise: 'KKR', role: 'BOWL', credits: 7.5 },
+  { name: 'Saurabh Dubey', franchise: 'KKR', role: 'BOWL', credits: 5.5 },
   { name: 'Cameron Green', franchise: 'KKR', role: 'AR', credits: 5.5 },
   { name: 'Matheesha Pathirana', franchise: 'KKR', role: 'BOWL', credits: 5.5 },
   { name: 'Finn Allen', franchise: 'KKR', role: 'WK', credits: 5.5 },

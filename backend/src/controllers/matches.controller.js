@@ -11,7 +11,15 @@ const getMatches = async (req, res) => {
       .populate('playingXI.team1', 'name franchise role')
       .populate('playingXI.team2', 'name franchise role')
       .sort({ scheduledAt: 1 });
-    res.json(matches);
+
+    // Strip playingXI from upcoming matches — prevent pre-announcement leaks
+    const sanitized = matches.map((m) => {
+      const obj = m.toObject();
+      if (obj.status === 'upcoming') obj.playingXI = { team1: [], team2: [] };
+      return obj;
+    });
+
+    res.json(sanitized);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -24,7 +32,12 @@ const getMatchById = async (req, res) => {
       .populate('playingXI.team1', 'name franchise role credits imageUrl')
       .populate('playingXI.team2', 'name franchise role credits imageUrl');
     if (!match) return res.status(404).json({ message: 'Match not found' });
-    res.json(match);
+
+    const obj = match.toObject();
+    // Strip playingXI from upcoming matches — prevent pre-announcement leaks
+    if (obj.status === 'upcoming') obj.playingXI = { team1: [], team2: [] };
+
+    res.json(obj);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -76,7 +89,8 @@ const getMatchSquad = async (req, res) => {
       ...match.playingXI.team2.map(String),
     ]);
 
-    const xiAnnounced = playingIds.size > 0;
+    // Only reveal XI after admin clicks "Announce XI" (status → toss_done/live/completed)
+    const xiAnnounced = playingIds.size > 0 && match.status !== 'upcoming';
 
     const result = players.map((p) => ({
       ...p.toObject(),
