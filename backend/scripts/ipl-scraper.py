@@ -168,6 +168,12 @@ MENTION_NAME_OVERRIDES = {
 }
 
 
+# Users who should never receive @mentions (plain text name only, no ping)
+NO_MENTION_PHONES = {
+    "918200994835",  # Nishant — do not disturb
+}
+
+
 def normalize_phone(phone):
     digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
     return digits if len(digits) >= 10 else None
@@ -180,12 +186,13 @@ def mention_label(name):
 
 
 def mention_entry(name, phone):
-    """Returns (@phone_for_body, phone_for_mentions_array) when phone available.
-    Gateway needs @phonenumber in the message body to actually ping."""
+    """Returns (label_for_body, phone_for_mentions_array) when phone available.
+    Gateway needs @phonenumber in the message body to actually ping.
+    Users in NO_MENTION_PHONES get plain text label instead — no ping."""
     normalized = normalize_phone(phone)
-    if normalized:
+    if normalized and normalized not in NO_MENTION_PHONES:
         return f"@{normalized}", normalized
-    # No phone — fall back to display name (won't ping but at least readable)
+    # No phone or explicitly blocked — fall back to display name (won't ping)
     label = MENTION_NAME_OVERRIDES.get(name, (name or "Player").strip().split()[0] or "Player")
     return label, None
 
