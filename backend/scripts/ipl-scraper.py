@@ -1948,8 +1948,12 @@ def auto_generate_missing_teams(db, match):
     existing = db.fantasyteams.find({"matchId": match_id})
     submitted_ids = {str(t["userId"]) for t in existing}
 
+    t1 = match.get("team1", "?")
+    t2 = match.get("team2", "?")
+
     # Generate for missing members
     auto_picked = []
+    auto_picked_teams = []  # full team info for per-user messages
     for uid in member_ids:
         if str(uid) in submitted_ids:
             continue
@@ -1976,9 +1980,14 @@ def auto_generate_missing_teams(db, match):
             db.fantasyteams.insert_one(doc)
             user = db.users.find_one({"_id": uid})
             name = user.get("name", "?") if user else "?"
-            auto_picked.append({
+            phone = user.get("phone", "") if user else ""
+            auto_picked.append({"name": name, "phone": phone})
+            auto_picked_teams.append({
                 "name": name,
-                "phone": user.get("phone", "") if user else "",
+                "phone": phone,
+                "team": team,
+                "captain": captain,
+                "vice_captain": vice_captain,
             })
             print(f"    Randomizer: auto-picked team for {name}")
         except Exception as e:
@@ -1986,12 +1995,37 @@ def auto_generate_missing_teams(db, match):
             print(f"    Randomizer: skip {uid} — {e}")
 
     if auto_picked:
+        # 1. Bulk announcement with all auto-picked names
         names, mentions = render_user_refs(auto_picked)
         send_group(
             f"\U0001f3b2 *Auto-picked teams* for: {names}\n\n"
             f"Missed the deadline — random team from playing XI assigned!",
             mentions=mentions,
         )
+
+        # 2. One message per user showing their full team
+        import time as _time
+        for entry in auto_picked_teams:
+            user_label, user_mentions = render_user_refs([{"name": entry["name"], "phone": entry["phone"]}])
+            team_lines = []
+            for p in entry["team"]:
+                pname = p.get("name", "?")
+                role = p.get("role", "")
+                if p["_id"] == entry["captain"]["_id"]:
+                    team_lines.append(f"  👑 {pname} ({role})")
+                elif p["_id"] == entry["vice_captain"]["_id"]:
+                    team_lines.append(f"  ⭐ {pname} ({role})")
+                else:
+                    team_lines.append(f"  • {pname} ({role})")
+            team_str = "\n".join(team_lines)
+            msg = (
+                f"🎲 *Auto-picked team for {user_label}*\n"
+                f"📋 {t1} vs {t2}\n\n"
+                f"{team_str}\n\n"
+                f"👑 C: {entry['captain'].get('name','?')}  ⭐ VC: {entry['vice_captain'].get('name','?')}"
+            )
+            send_group(msg, mentions=user_mentions)
+            _time.sleep(1)  # avoid WhatsApp rate limiting
 
     return auto_picked
 
