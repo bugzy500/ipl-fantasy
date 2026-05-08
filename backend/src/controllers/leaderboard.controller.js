@@ -54,9 +54,10 @@ const getSeasonLeaderboard = async (req, res) => {
           _id: '$userId',
           totalPoints: { $sum: '$totalPoints' },
           matchesPlayed: { $sum: 1 },
+          avgPointsPerMatch: { $avg: '$totalPoints' },
         },
       },
-      { $sort: { totalPoints: -1 } },
+      { $sort: { avgPointsPerMatch: -1, totalPoints: -1 } },
       {
         $lookup: {
           from: 'users',
@@ -73,7 +74,7 @@ const getSeasonLeaderboard = async (req, res) => {
           userName: '$user.name',
           totalPoints: 1,
           matchesPlayed: 1,
-          avgPointsPerMatch: { $round: [{ $divide: ['$totalPoints', '$matchesPlayed'] }, 1] },
+          avgPointsPerMatch: { $round: ['$avgPointsPerMatch', 1] },
         },
       },
     ]);

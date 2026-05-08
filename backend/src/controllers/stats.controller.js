@@ -194,7 +194,7 @@ const getSeasonInsights = async (req, res) => {
       bestPredictor && { type: 'best_predictor', icon: 'psychology', ...bestPredictor },
     ].filter(Boolean);
 
-    const AWARDS_COUNT = 20;
+    const AWARDS_COUNT = 21;
     res.json({
       insights,
       money,
@@ -244,7 +244,7 @@ const getSeasonAwards = async (req, res) => {
     }
 
     // Build per-user match data
-    const userMatchData = {}; // userId → [{ matchId, totalPoints, rank, capPts, vcPts, batPts, bowlPts, arPts }]
+    const userMatchData = {}; // userId → { name, matches: [{ matchId, totalPoints, rank, ... }] }
 
     // First pass: group teams by match for ranking
     const teamsByMatch = {};
@@ -263,7 +263,6 @@ const getSeasonAwards = async (req, res) => {
         const uid = String(t.userId._id);
         if (!userMatchData[uid]) userMatchData[uid] = { name: t.userId.name, matches: [] };
 
-        // Calculate captain and VC points
         const capId = typeof t.captain === 'object' ? t.captain._id : t.captain;
         const vcId = typeof t.viceCaptain === 'object' ? t.viceCaptain._id : t.viceCaptain;
         const capPerf = perfMap[`${mid}_${capId}`];
@@ -271,7 +270,6 @@ const getSeasonAwards = async (req, res) => {
         const capPts = capPerf ? capPerf.fantasyPoints * 2 : 0;
         const vcPts = vcPerf ? vcPerf.fantasyPoints * 1.5 : 0;
 
-        // Calculate points by player role
         let batPts = 0, bowlPts = 0, arPts = 0;
         for (const p of (t.players || [])) {
           const player = typeof p === 'object' ? p : null;
@@ -290,7 +288,6 @@ const getSeasonAwards = async (req, res) => {
           if (matchTeams[j].totalPoints > t.totalPoints) rank = j + 2;
         }
         if (i > 0 && matchTeams[i - 1].totalPoints === t.totalPoints) {
-          // Same rank as previous
           rank = userMatchData[String(matchTeams[i - 1].userId._id)]?.matches.slice(-1)[0]?.rank ?? i + 1;
         }
 
@@ -309,6 +306,11 @@ const getSeasonAwards = async (req, res) => {
 
     const awards = [];
     const users = Object.entries(userMatchData);
+
+    // Build match date lookup for date-based pity calculations
+    const matchDateLookup = {};
+    for (const m of completedMatches) { matchDateLookup[String(m._id)] = m.scheduledAt; }
+    const cutoff5d = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
 
     // --- Pre-compute all sorted arrays first so we can build bestWinners before pushing any award ---
     const allSingles = users.map(([, u]) => ({
@@ -334,9 +336,39 @@ const getSeasonAwards = async (req, res) => {
     })).sort((a, b) => b.total - a.total);
     const worstVc = [...vcTotals].sort((a, b) => a.total - b.total);
 
-    const pityCounts = users.map(([, u]) => ({
-      name: u.name, count: u.matches.filter(m => m.rank === 8).length,
+    // Pity 1: most 8th places in matches before 5 days ago
+    const pityCounts5d = users.map(([, u]) => ({
+      name: u.name, count: u.matches.filter(m => {
+        const d = matchDateLookup[m.matchId];
+        return m.rank === 8 && d && new Date(d) < cutoff5d;
+      }).length,
     })).sort((a, b) => b.count - a.count);
+
+    // Pity 2: biggest season rank drop in last 5 days (avg-points based)
+    const avgBefore5d = {}, avgAll = {};
+    for (const [uid, u] of users) {
+      const beforeMatches = u.matches.filter(m => {
+        const d = matchDateLookup[m.matchId];
+        return d && new Date(d) < cutoff5d;
+      });
+      if (beforeMatches.length > 0) {
+        avgBefore5d[uid] = { name: u.name, avg: beforeMatches.reduce((s, m) => s + m.totalPoints, 0) / beforeMatches.length };
+      }
+      if (u.matches.length > 0) {
+        avgAll[uid] = { name: u.name, avg: u.matches.reduce((s, m) => s + m.totalPoints, 0) / u.matches.length };
+      }
+    }
+    const sortedBefore = Object.entries(avgBefore5d).sort((a, b) => b[1].avg - a[1].avg);
+    const rankBefore = {};
+    sortedBefore.forEach(([uid], i) => { rankBefore[uid] = i + 1; });
+    const sortedNow = Object.entries(avgAll).sort((a, b) => b[1].avg - a[1].avg);
+    const rankNow = {};
+    sortedNow.forEach(([uid], i) => { rankNow[uid] = i + 1; });
+    const rankDrops = users.map(([uid, u]) => {
+      const before = rankBefore[uid], now = rankNow[uid];
+      const drop = (before && now) ? now - before : 0;
+      return { name: u.name, drop, before: before ?? '—', now: now ?? '—' };
+    }).filter(d => d.drop > 0).sort((a, b) => b.drop - a.drop);
 
     const allPosLovers = [];
     for (const [, u] of users) {
@@ -386,7 +418,7 @@ const getSeasonAwards = async (req, res) => {
       name: u.name, count: u.matches.filter(m => m.rank <= 7).length, total: u.matches.length,
     })).sort((a, b) => a.count - b.count);
 
-    // Anyone who wins a best-category award is ineligible for any worst-category award (runner-up gets it)
+    // REQ 4: Top 2 of batsman/bowler/allrounder categories excluded from their lowest counterparts
     const bestWinners = new Set([
       allSingles[0]?.name,
       top3Counts[0]?.count > 0 ? top3Counts[0].name : null,
@@ -394,13 +426,17 @@ const getSeasonAwards = async (req, res) => {
       capTotals[0]?.name,
       vcTotals[0]?.name,
       batTotals[0]?.name,
+      batTotals[1]?.name,
       bowlTotals[0]?.name,
+      bowlTotals[1]?.name,
       arTotals[0]?.name,
+      arTotals[1]?.name,
       bestPredictors[0]?.name,
     ].filter(Boolean));
 
     // Helpers
     const ru = (sorted, valueFn) => sorted[1] ? { name: sorted[1].name, value: valueFn(sorted[1]) } : null;
+    const th = (sorted, valueFn) => sorted[2] ? { name: sorted[2].name, value: valueFn(sorted[2]) } : null;
     const ptGap = (w, r, unit) => r ? `${Math.round((w - r) * 10) / 10} ${unit} ahead` : null;
     const cntGap = (w, r, unit) => r ? (w - r === 0 ? 'tied' : `${w - r} more ${unit}`) : null;
     // For worst awards: pick first player not in bestWinners
@@ -408,12 +444,16 @@ const getSeasonAwards = async (req, res) => {
     const wRunner = (sorted, winner) => winner
       ? sorted.find(e => e.name !== winner.name && !bestWinners.has(e.name)) ?? null
       : null;
+    const wThird = (sorted, winner, runner) => winner && runner
+      ? sorted.find(e => e.name !== winner.name && e.name !== runner.name && !bestWinners.has(e.name)) ?? null
+      : null;
 
     // 1. Max Score (Single Match)
     if (allSingles[0]) awards.push({
       type: 'max_single_match', icon: 'bolt', title: 'Max Score (Single Match)',
       winner: allSingles[0].name, value: `${allSingles[0].pts} pts`,
       runnerUp: ru(allSingles, r => `${r.pts} pts`),
+      thirdPlace: th(allSingles, r => `${r.pts} pts`),
       gap: allSingles[1] ? ptGap(allSingles[0].pts, allSingles[1].pts, 'pts') : null,
     });
 
@@ -422,6 +462,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'top3_finishes', icon: 'emoji_events', title: 'Highest Top 3 Finishes',
       winner: top3Counts[0].name, value: `${top3Counts[0].count} podium finishes`,
       runnerUp: ru(top3Counts, r => `${r.count} podium finishes`),
+      thirdPlace: th(top3Counts, r => `${r.count} podium finishes`),
       gap: cntGap(top3Counts[0].count, top3Counts[1]?.count, 'podiums'),
     });
 
@@ -430,15 +471,17 @@ const getSeasonAwards = async (req, res) => {
       type: 'highest_total', icon: 'trending_up', title: 'Highest Total Score',
       winner: totalByUser[0].name, value: `${totalByUser[0].total} pts`,
       runnerUp: ru(totalByUser, r => `${r.total} pts`),
+      thirdPlace: th(totalByUser, r => `${r.total} pts`),
       gap: ptGap(totalByUser[0].total, totalByUser[1]?.total, 'pts'),
     });
 
     // 4. Lowest Total Score — skip best-award winners
-    const ltW = wPick(lowestTotal), ltR = wRunner(lowestTotal, ltW);
+    const ltW = wPick(lowestTotal), ltR = wRunner(lowestTotal, ltW), ltT3 = wThird(lowestTotal, ltW, ltR);
     if (ltW) awards.push({
       type: 'lowest_total', icon: 'trending_down', title: 'Lowest Total Score',
       winner: ltW.name, value: `${ltW.total} pts`,
       runnerUp: ltR ? { name: ltR.name, value: `${ltR.total} pts` } : null,
+      thirdPlace: ltT3 ? { name: ltT3.name, value: `${ltT3.total} pts` } : null,
       gap: ltR ? `${Math.round((ltR.total - ltW.total) * 10) / 10} pts lower` : null,
     });
 
@@ -447,15 +490,17 @@ const getSeasonAwards = async (req, res) => {
       type: 'best_captain', icon: 'stars', title: 'Best Captain Picker',
       winner: capTotals[0].name, value: `${capTotals[0].total} captain pts`,
       runnerUp: ru(capTotals, r => `${r.total} captain pts`),
+      thirdPlace: th(capTotals, r => `${r.total} captain pts`),
       gap: ptGap(capTotals[0].total, capTotals[1]?.total, 'pts'),
     });
 
     // 6. Worst Captain Picker — skip best-award winners
-    const wcW = wPick(worstCap), wcR = wRunner(worstCap, wcW);
+    const wcW = wPick(worstCap), wcR = wRunner(worstCap, wcW), wcT3 = wThird(worstCap, wcW, wcR);
     if (wcW) awards.push({
       type: 'worst_captain', icon: 'star_border', title: 'Worst Captain Picker',
       winner: wcW.name, value: `${wcW.total} captain pts`,
       runnerUp: wcR ? { name: wcR.name, value: `${wcR.total} captain pts` } : null,
+      thirdPlace: wcT3 ? { name: wcT3.name, value: `${wcT3.total} captain pts` } : null,
       gap: wcR ? `${Math.round((wcR.total - wcW.total) * 10) / 10} pts lower` : null,
     });
 
@@ -464,24 +509,36 @@ const getSeasonAwards = async (req, res) => {
       type: 'best_vc', icon: 'star_half', title: 'Best Vice Captain Picker',
       winner: vcTotals[0].name, value: `${vcTotals[0].total} VC pts`,
       runnerUp: ru(vcTotals, r => `${r.total} VC pts`),
+      thirdPlace: th(vcTotals, r => `${r.total} VC pts`),
       gap: ptGap(vcTotals[0].total, vcTotals[1]?.total, 'pts'),
     });
 
     // 8. Worst Vice Captain Picker — skip best-award winners
-    const wvcW = wPick(worstVc), wvcR = wRunner(worstVc, wvcW);
+    const wvcW = wPick(worstVc), wvcR = wRunner(worstVc, wvcW), wvcT3 = wThird(worstVc, wvcW, wvcR);
     if (wvcW) awards.push({
       type: 'worst_vc', icon: 'star_outline', title: 'Worst Vice Captain Picker',
       winner: wvcW.name, value: `${wvcW.total} VC pts`,
       runnerUp: wvcR ? { name: wvcR.name, value: `${wvcR.total} VC pts` } : null,
+      thirdPlace: wvcT3 ? { name: wvcT3.name, value: `${wvcT3.total} VC pts` } : null,
       gap: wvcR ? `${Math.round((wvcR.total - wvcW.total) * 10) / 10} pts lower` : null,
     });
 
-    // 9. Pity Award (Most 8th-place finishes)
-    if (pityCounts[0] && pityCounts[0].count > 0) awards.push({
-      type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award (Most 8th Places)',
-      winner: pityCounts[0].name, value: `${pityCounts[0].count}× 8th place`,
-      runnerUp: ru(pityCounts, r => `${r.count}× 8th place`),
-      gap: cntGap(pityCounts[0].count, pityCounts[1]?.count, 'times'),
+    // REQ 5a: Pity Award — Most 8th Places (matches up to 5 days ago)
+    if (pityCounts5d[0] && pityCounts5d[0].count > 0) awards.push({
+      type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award — Most 8th Places (till 5 days ago)',
+      winner: pityCounts5d[0].name, value: `${pityCounts5d[0].count}× 8th place`,
+      runnerUp: pityCounts5d[1]?.count > 0 ? { name: pityCounts5d[1].name, value: `${pityCounts5d[1].count}× 8th place` } : null,
+      thirdPlace: pityCounts5d[2]?.count > 0 ? { name: pityCounts5d[2].name, value: `${pityCounts5d[2].count}× 8th place` } : null,
+      gap: pityCounts5d[1]?.count > 0 ? cntGap(pityCounts5d[0].count, pityCounts5d[1].count, 'times') : null,
+    });
+
+    // REQ 5b: Pity Award — Biggest rank drop in last 5 days (avg-points based season rank)
+    if (rankDrops.length > 0) awards.push({
+      type: 'pity_drop', icon: 'keyboard_double_arrow_down', title: 'Pity Award — Biggest Rank Drop (last 5 days)',
+      winner: rankDrops[0].name, value: `#${rankDrops[0].before} → #${rankDrops[0].now} (↓${rankDrops[0].drop})`,
+      runnerUp: rankDrops[1] ? { name: rankDrops[1].name, value: `#${rankDrops[1].before} → #${rankDrops[1].now} (↓${rankDrops[1].drop})` } : null,
+      thirdPlace: rankDrops[2] ? { name: rankDrops[2].name, value: `#${rankDrops[2].before} → #${rankDrops[2].now} (↓${rankDrops[2].drop})` } : null,
+      gap: null,
     });
 
     // 10. Position Lover (Max times at same position)
@@ -489,6 +546,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'position_lover', icon: 'repeat', title: 'Position Lover',
       winner: allPosLovers[0].name, value: `${allPosLovers[0].count}× at #${allPosLovers[0].pos}`,
       runnerUp: allPosLovers[1] ? { name: allPosLovers[1].name, value: `${allPosLovers[1].count}× at #${allPosLovers[1].pos}` } : null,
+      thirdPlace: allPosLovers[2] ? { name: allPosLovers[2].name, value: `${allPosLovers[2].count}× at #${allPosLovers[2].pos}` } : null,
       gap: cntGap(allPosLovers[0].count, allPosLovers[1]?.count, 'times'),
     });
 
@@ -497,6 +555,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'jack_of_all', icon: 'shuffle', title: 'Jack of All Trades',
       winner: jackOfAll[0].name, value: `${jackOfAll[0].positions} different positions`,
       runnerUp: ru(jackOfAll, r => `${r.positions} positions`),
+      thirdPlace: th(jackOfAll, r => `${r.positions} positions`),
       gap: cntGap(jackOfAll[0].positions, jackOfAll[1]?.positions, 'positions'),
     });
 
@@ -505,6 +564,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'the_batsman', icon: 'sports_cricket', title: 'The Batsman',
       winner: batTotals[0].name, value: `${batTotals[0].total} pts from BAT/WK`,
       runnerUp: ru(batTotals, r => `${r.total} pts`),
+      thirdPlace: th(batTotals, r => `${r.total} pts`),
       gap: ptGap(batTotals[0].total, batTotals[1]?.total, 'pts'),
     });
 
@@ -513,6 +573,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'the_bowler', icon: 'sports_baseball', title: 'The Bowler',
       winner: bowlTotals[0].name, value: `${bowlTotals[0].total} pts from bowlers`,
       runnerUp: ru(bowlTotals, r => `${r.total} pts`),
+      thirdPlace: th(bowlTotals, r => `${r.total} pts`),
       gap: ptGap(bowlTotals[0].total, bowlTotals[1]?.total, 'pts'),
     });
 
@@ -521,6 +582,7 @@ const getSeasonAwards = async (req, res) => {
       type: 'the_allrounder', icon: 'psychology', title: 'The All-Rounder',
       winner: arTotals[0].name, value: `${arTotals[0].total} pts from all-rounders`,
       runnerUp: ru(arTotals, r => `${r.total} pts`),
+      thirdPlace: th(arTotals, r => `${r.total} pts`),
       gap: ptGap(arTotals[0].total, arTotals[1]?.total, 'pts'),
     });
 
@@ -529,55 +591,82 @@ const getSeasonAwards = async (req, res) => {
       type: 'best_predictor', icon: 'psychology_alt', title: 'Best Win Predictor',
       winner: bestPredictors[0].name, value: `${bestPredictors[0].pct}% (${bestPredictors[0].correct}/${totalCompleted})`,
       runnerUp: bestPredictors[1] ? { name: bestPredictors[1].name, value: `${bestPredictors[1].pct}% (${bestPredictors[1].correct}/${totalCompleted})` } : null,
+      thirdPlace: bestPredictors[2] ? { name: bestPredictors[2].name, value: `${bestPredictors[2].pct}% (${bestPredictors[2].correct}/${totalCompleted})` } : null,
       gap: bestPredictors[1] ? `${bestPredictors[0].correct - bestPredictors[1].correct} more correct` : null,
     });
 
     // 16. Worst Win Predictor — skip best-award winners
-    const wpW = wPick(worstPredictors), wpR = wRunner(worstPredictors, wpW);
+    const wpW = wPick(worstPredictors), wpR = wRunner(worstPredictors, wpW), wpT3 = wThird(worstPredictors, wpW, wpR);
     if (wpW) awards.push({
       type: 'worst_predictor', icon: 'do_not_disturb', title: 'Worst Win Predictor',
       winner: wpW.name, value: `${wpW.pct}% (${wpW.correct}/${totalCompleted})`,
       runnerUp: wpR ? { name: wpR.name, value: `${wpR.pct}% (${wpR.correct}/${totalCompleted})` } : null,
+      thirdPlace: wpT3 ? { name: wpT3.name, value: `${wpT3.pct}% (${wpT3.correct}/${totalCompleted})` } : null,
       gap: wpR ? `${wpR.correct - wpW.correct} fewer correct` : null,
     });
 
     // 17. Lowest Top 7 Finishes — skip best-award winners
-    const lt7W = wPick(top7Counts), lt7R = wRunner(top7Counts, lt7W);
+    const lt7W = wPick(top7Counts), lt7R = wRunner(top7Counts, lt7W), lt7T3 = wThird(top7Counts, lt7W, lt7R);
     if (lt7W) awards.push({
       type: 'lowest_top7', icon: 'arrow_downward', title: 'Lowest Top 7 Finishes',
       winner: lt7W.name, value: `${lt7W.count}/${lt7W.total} in top 7`,
       runnerUp: lt7R ? { name: lt7R.name, value: `${lt7R.count}/${lt7R.total} in top 7` } : null,
+      thirdPlace: lt7T3 ? { name: lt7T3.name, value: `${lt7T3.count}/${lt7T3.total} in top 7` } : null,
       gap: lt7R ? `${lt7R.count - lt7W.count} fewer top-7 finishes` : null,
     });
 
     // 18. Lowest Bowling Points — skip best-award winners
-    const lbowlW = wPick(bowlLowest), lbowlR = wRunner(bowlLowest, lbowlW);
+    const lbowlW = wPick(bowlLowest), lbowlR = wRunner(bowlLowest, lbowlW), lbowlT3 = wThird(bowlLowest, lbowlW, lbowlR);
     if (lbowlW) awards.push({
       type: 'lowest_bowling', icon: 'sports_baseball', title: 'Lowest Bowling Points',
       winner: lbowlW.name, value: `${lbowlW.total} pts from bowlers`,
       runnerUp: lbowlR ? { name: lbowlR.name, value: `${lbowlR.total} pts` } : null,
+      thirdPlace: lbowlT3 ? { name: lbowlT3.name, value: `${lbowlT3.total} pts` } : null,
       gap: lbowlR ? `${Math.round((lbowlR.total - lbowlW.total) * 10) / 10} pts lower` : null,
     });
 
     // 19. Lowest Batting Points — skip best-award winners
-    const lbatW = wPick(batLowest), lbatR = wRunner(batLowest, lbatW);
+    const lbatW = wPick(batLowest), lbatR = wRunner(batLowest, lbatW), lbatT3 = wThird(batLowest, lbatW, lbatR);
     if (lbatW) awards.push({
       type: 'lowest_batting', icon: 'sports_cricket', title: 'Lowest Batting Points',
       winner: lbatW.name, value: `${lbatW.total} pts from BAT/WK`,
       runnerUp: lbatR ? { name: lbatR.name, value: `${lbatR.total} pts` } : null,
+      thirdPlace: lbatT3 ? { name: lbatT3.name, value: `${lbatT3.total} pts` } : null,
       gap: lbatR ? `${Math.round((lbatR.total - lbatW.total) * 10) / 10} pts lower` : null,
     });
 
     // 20. Lowest All-Rounder Points — skip best-award winners
-    const larW = wPick(arLowest), larR = wRunner(arLowest, larW);
+    const larW = wPick(arLowest), larR = wRunner(arLowest, larW), larT3 = wThird(arLowest, larW, larR);
     if (larW) awards.push({
       type: 'lowest_allrounder', icon: 'psychology', title: 'Lowest All-Rounder Points',
       winner: larW.name, value: `${larW.total} pts from all-rounders`,
       runnerUp: larR ? { name: larR.name, value: `${larR.total} pts` } : null,
+      thirdPlace: larT3 ? { name: larT3.name, value: `${larT3.total} pts` } : null,
       gap: larR ? `${Math.round((larR.total - larW.total) * 10) / 10} pts lower` : null,
     });
 
-    res.json({ awards, matchesPlayed: matchIds.length });
+    // REQ 3: Compute award pool for tentative cash amounts shown in Season Awards tab
+    const allMatchParticipants = await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
+      .select('userId matchId').populate('userId', '_id').lean();
+    let totalAwardPool = 0;
+    for (const m of completedMatches) {
+      const mid = String(m._id);
+      const matchDate = m.scheduledAt;
+      const mTeams = allMatchParticipants.filter(t =>
+        String(t.matchId) === mid && t.userId != null &&
+        !(matchDate < NEW_RULES_CUTOFF && NEW_MEMBER_IDS.has(String(t.userId._id)))
+      );
+      if (mTeams.length === 0) continue;
+      const prizeTable = getPrizeTable(matchDate);
+      const pot = mTeams.reduce((sum, t) => sum + getEntryFee(t.userId._id, matchDate), 0);
+      const prizeSum = prizeTable.reduce((a, b) => a + b, 0);
+      totalAwardPool += Math.max(0, pot - prizeSum);
+    }
+    // 1st and 2nd in each award get cash — 3rd is honorary
+    const cashSlots = awards.length * 2;
+    const perAward = cashSlots > 0 ? Math.round(totalAwardPool / cashSlots) : 0;
+
+    res.json({ awards, matchesPlayed: matchIds.length, awardPool: Math.round(totalAwardPool), perAward });
   } catch (err) {
     console.error('Season awards error:', err);
     res.status(500).json({ message: err.message });
