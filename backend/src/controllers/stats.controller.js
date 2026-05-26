@@ -396,9 +396,12 @@ const getSeasonAwards = async (req, res) => {
       if (p.isCorrect) predByUser[uid].correct++;
     }
     const allPredictors = Object.values(predByUser)
-      .map(u => ({ name: u.name, pct: Math.round((u.correct / totalCompleted) * 100), correct: u.correct }));
+      .map(u => ({ name: u.name, pct: Math.round((u.correct / u.total) * 100), correct: u.correct, total: u.total }));
+    
+    // Best: Most correct wins, tie-breaker: highest percentage
     const bestPredictors = [...allPredictors].sort((a, b) => b.correct - a.correct || b.pct - a.pct);
-    const worstPredictors = [...allPredictors].sort((a, b) => a.correct - b.correct || a.pct - b.pct);
+    // Worst: Lowest percentage, tie-breaker: most predictions made
+    const worstPredictors = [...allPredictors].sort((a, b) => a.pct - b.pct || b.total - a.total);
 
     const top7Counts = users.map(([, u]) => ({
       name: u.name, count: u.matches.filter(m => m.rank <= 7).length, total: u.matches.length,
@@ -527,13 +530,13 @@ const getSeasonAwards = async (req, res) => {
       gap: cntGap(allPosLovers[0].count, allPosLovers[1]?.count, 'times'),
     });
 
-    // 11. Jack of All Trades (Most distinct positions)
-    if (jackOfAll[0]) awards.push({
+    // 11. Jack of All Trades (Hardcoded as requested)
+    awards.push({
       type: 'jack_of_all', icon: 'shuffle', title: 'Jack of All Trades',
-      winner: jackOfAll[0].name, value: `${jackOfAll[0].positions} different positions`,
-      runnerUp: ru(jackOfAll, r => `${r.positions} positions`),
-      thirdPlace: th(jackOfAll, r => `${r.positions} positions`),
-      gap: cntGap(jackOfAll[0].positions, jackOfAll[1]?.positions, 'positions'),
+      winner: 'Jayesh sharma', value: 'Most versatile',
+      runnerUp: { name: 'Shubham Sharma', value: 'Runner up' },
+      thirdPlace: null,
+      gap: null,
     });
 
     // 12. The Batsman (Highest BAT + WK points)
@@ -566,9 +569,9 @@ const getSeasonAwards = async (req, res) => {
     // 15. Best Win Predictor
     if (bestPredictors[0]) awards.push({
       type: 'best_predictor', icon: 'psychology_alt', title: 'Best Win Predictor',
-      winner: bestPredictors[0].name, value: `${bestPredictors[0].pct}% (${bestPredictors[0].correct}/${totalCompleted})`,
-      runnerUp: bestPredictors[1] ? { name: bestPredictors[1].name, value: `${bestPredictors[1].pct}% (${bestPredictors[1].correct}/${totalCompleted})` } : null,
-      thirdPlace: bestPredictors[2] ? { name: bestPredictors[2].name, value: `${bestPredictors[2].pct}% (${bestPredictors[2].correct}/${totalCompleted})` } : null,
+      winner: bestPredictors[0].name, value: `${bestPredictors[0].pct}% (${bestPredictors[0].correct}/${bestPredictors[0].total})`,
+      runnerUp: bestPredictors[1] ? { name: bestPredictors[1].name, value: `${bestPredictors[1].pct}% (${bestPredictors[1].correct}/${bestPredictors[1].total})` } : null,
+      thirdPlace: bestPredictors[2] ? { name: bestPredictors[2].name, value: `${bestPredictors[2].pct}% (${bestPredictors[2].correct}/${bestPredictors[2].total})` } : null,
       gap: bestPredictors[1] ? `${bestPredictors[0].correct - bestPredictors[1].correct} more correct` : null,
     });
 
@@ -576,10 +579,10 @@ const getSeasonAwards = async (req, res) => {
     const wpW = wPick(worstPredictors), wpR = wRunner(worstPredictors, wpW), wpT3 = wThird(worstPredictors, wpW, wpR);
     if (wpW) awards.push({
       type: 'worst_predictor', icon: 'do_not_disturb', title: 'Worst Win Predictor',
-      winner: wpW.name, value: `${wpW.pct}% (${wpW.correct}/${totalCompleted})`,
-      runnerUp: wpR ? { name: wpR.name, value: `${wpR.pct}% (${wpR.correct}/${totalCompleted})` } : null,
-      thirdPlace: wpT3 ? { name: wpT3.name, value: `${wpT3.pct}% (${wpT3.correct}/${totalCompleted})` } : null,
-      gap: wpR ? `${wpR.correct - wpW.correct} fewer correct` : null,
+      winner: wpW.name, value: `${wpW.pct}% (${wpW.correct}/${wpW.total})`,
+      runnerUp: wpR ? { name: wpR.name, value: `${wpR.pct}% (${wpR.correct}/${wpR.total})` } : null,
+      thirdPlace: wpT3 ? { name: wpT3.name, value: `${wpT3.pct}% (${wpT3.correct}/${wpT3.total})` } : null,
+      gap: wpR ? `${wpR.pct - wpW.pct}% worse` : null,
     });
 
     // 17. Lowest Top 7 Finishes — skip best-award winners
