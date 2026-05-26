@@ -214,9 +214,7 @@ import { SeasonEndAward } from '../../core/models/api.models';
                     </div>
                     <div class="text-right flex-shrink-0">
                       <div class="text-display font-bold text-sm" style="color: var(--color-accent-hover);">{{ award.value }}</div>
-                      @if (seasonEndAwards.value()?.perAward) {
-                        <div class="text-[10px] mt-0.5 font-bold" style="color: var(--color-success);">💰 ₹{{ seasonEndAwards.value()?.perAward }} tentative</div>
-                      }
+                      <div class="text-[10px] mt-0.5 font-bold" style="color: var(--color-success);">💰 ₹225</div>
                       @if (award.gap) {
                         <div class="text-[10px] mt-0.5" style="color: var(--color-text-subtle);">{{ award.gap }}</div>
                       }
@@ -227,13 +225,13 @@ import { SeasonEndAward } from '../../core/models/api.models';
                     <div class="flex items-center justify-between px-4 py-2"
                          style="background: var(--color-surface-elevated); border-top: 1px solid var(--color-border);">
                       <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(245,158,11,0.15); color: #F59E0B;">2nd 💰</span>
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(245,158,11,0.15); color: #F59E0B;">2nd 💰 ₹125</span>
                         <span class="text-xs" style="color: var(--color-text-muted);">{{ award.runnerUp.name }}</span>
                       </div>
                       <span class="text-xs font-medium" style="color: var(--color-text-subtle);">{{ award.runnerUp.value }}</span>
                     </div>
                   }
-                  <!-- 3rd place row (honorary, no cash) -->
+
                   @if (award.thirdPlace) {
                     <div class="flex items-center justify-between px-4 py-2"
                          style="background: var(--color-surface-elevated); border-top: 1px solid var(--color-border);">

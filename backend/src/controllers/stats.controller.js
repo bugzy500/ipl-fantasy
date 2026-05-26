@@ -17,8 +17,8 @@ const NEW_MEMBER_IDS = new Set([
 ]);
 
 // Prize tables
-const OLD_PRIZE_TABLE  = [150, 130, 110, 90, 70, 50, 40];        // pre-Apr 30, 7 positions
-const NEW_PRIZE_TABLE  = [160, 140, 120, 100, 85, 75, 65, 55, 50]; // from Apr 30, 9 positions
+const OLD_PRIZE_TABLE  = [130, 110, 90, 70, 55, 45];        // pre-Apr 30, 6 positions
+const NEW_PRIZE_TABLE  = [150, 130, 110, 90, 70, 60, 50, 40]; // from Apr 30, 8 positions
 const ENTRY_FEE_OLD    = 60;
 const ENTRY_FEE_NEW    = 60; // original members still pay ₹60
 const ENTRY_FEE_NEWMEM = 50; // new members pay ₹50
@@ -194,14 +194,14 @@ const getSeasonInsights = async (req, res) => {
       bestPredictor && { type: 'best_predictor', icon: 'psychology', ...bestPredictor },
     ].filter(Boolean);
 
-    const AWARDS_COUNT = 21;
+    const AWARDS_COUNT = 20;
     res.json({
       insights,
       money,
       entryFee: ENTRY_FEE_NEW,
-      awardPool: Math.round(totalAwardPool),
+      awardPool: 7000,
       awardsCount: AWARDS_COUNT,
-      perAward: Math.round(totalAwardPool / AWARDS_COUNT),
+      perAward: 350,
     });
   } catch (err) {
     console.error('Stats error:', err);
@@ -222,7 +222,7 @@ const getSeasonAwards = async (req, res) => {
     // Season awards exclude new members (joined 2026-04-30, can't compete on full-season basis)
     const eligibleMemberIds = activeMemberIds.filter(id => !NEW_MEMBER_IDS.has(String(id)));
 
-    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: eligibleMemberIds } })
+    const allTeams = (await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
       .populate('userId', 'name')
       .populate('captain', 'name role')
       .populate('viceCaptain', 'name role')
@@ -246,7 +246,7 @@ const getSeasonAwards = async (req, res) => {
     // Build per-user match data
     const userMatchData = {}; // userId → { name, matches: [{ matchId, totalPoints, rank, ... }] }
 
-    // First pass: group teams by match for ranking
+    // First pass: group teams by match for ranking (includes all active members)
     const teamsByMatch = {};
     for (const t of allTeams) {
       const mid = String(t.matchId);
@@ -261,6 +261,21 @@ const getSeasonAwards = async (req, res) => {
       for (let i = 0; i < matchTeams.length; i++) {
         const t = matchTeams[i];
         const uid = String(t.userId._id);
+
+        // Rank (handle ties: same totalPoints = same rank)
+        let rank = 1;
+        for (let j = 0; j < i; j++) {
+          if (matchTeams[j].totalPoints > t.totalPoints) rank = j + 2;
+        }
+        if (i > 0 && matchTeams[i - 1].totalPoints === t.totalPoints) {
+          rank = matchTeams[i - 1].globalRank || i + 1;
+        }
+        t.globalRank = rank;
+
+        // Skip adding stats for ineligible members (new members)
+        const isEligible = eligibleMemberIds.some(id => String(id) === uid);
+        if (!isEligible) continue;
+
         if (!userMatchData[uid]) userMatchData[uid] = { name: t.userId.name, matches: [] };
 
         const capId = typeof t.captain === 'object' ? t.captain._id : t.captain;
@@ -280,15 +295,6 @@ const getSeasonAwards = async (req, res) => {
           if (role === 'BAT' || role === 'WK') batPts += pts;
           else if (role === 'BOWL') bowlPts += pts;
           else if (role === 'AR') arPts += pts;
-        }
-
-        // Rank (handle ties: same totalPoints = same rank)
-        let rank = 1;
-        for (let j = 0; j < i; j++) {
-          if (matchTeams[j].totalPoints > t.totalPoints) rank = j + 2;
-        }
-        if (i > 0 && matchTeams[i - 1].totalPoints === t.totalPoints) {
-          rank = userMatchData[String(matchTeams[i - 1].userId._id)]?.matches.slice(-1)[0]?.rank ?? i + 1;
         }
 
         userMatchData[uid].matches.push({
@@ -336,39 +342,19 @@ const getSeasonAwards = async (req, res) => {
     })).sort((a, b) => b.total - a.total);
     const worstVc = [...vcTotals].sort((a, b) => a.total - b.total);
 
-    // Pity 1: most 8th places in matches before 5 days ago
-    const pityCounts5d = users.map(([, u]) => ({
-      name: u.name, count: u.matches.filter(m => {
-        const d = matchDateLookup[m.matchId];
-        return m.rank === 8 && d && new Date(d) < cutoff5d;
-      }).length,
-    })).sort((a, b) => b.count - a.count);
-
-    // Pity 2: biggest season rank drop in last 5 days (avg-points based)
-    const avgBefore5d = {}, avgAll = {};
-    for (const [uid, u] of users) {
-      const beforeMatches = u.matches.filter(m => {
-        const d = matchDateLookup[m.matchId];
-        return d && new Date(d) < cutoff5d;
-      });
-      if (beforeMatches.length > 0) {
-        avgBefore5d[uid] = { name: u.name, avg: beforeMatches.reduce((s, m) => s + m.totalPoints, 0) / beforeMatches.length };
+    // Pity: most 7th places before cutoff + 9th places after cutoff
+    const pityCounts = users.map(([, u]) => {
+      let count = 0;
+      for (const m of u.matches) {
+        const matchDate = matchDateLookup[m.matchId] ?? new Date(0);
+        if (matchDate < NEW_RULES_CUTOFF) {
+          if (m.rank === 7) count++;
+        } else {
+          if (m.rank === 9) count++;
+        }
       }
-      if (u.matches.length > 0) {
-        avgAll[uid] = { name: u.name, avg: u.matches.reduce((s, m) => s + m.totalPoints, 0) / u.matches.length };
-      }
-    }
-    const sortedBefore = Object.entries(avgBefore5d).sort((a, b) => b[1].avg - a[1].avg);
-    const rankBefore = {};
-    sortedBefore.forEach(([uid], i) => { rankBefore[uid] = i + 1; });
-    const sortedNow = Object.entries(avgAll).sort((a, b) => b[1].avg - a[1].avg);
-    const rankNow = {};
-    sortedNow.forEach(([uid], i) => { rankNow[uid] = i + 1; });
-    const rankDrops = users.map(([uid, u]) => {
-      const before = rankBefore[uid], now = rankNow[uid];
-      const drop = (before && now) ? now - before : 0;
-      return { name: u.name, drop, before: before ?? '—', now: now ?? '—' };
-    }).filter(d => d.drop > 0).sort((a, b) => b.drop - a.drop);
+      return { name: u.name, count };
+    }).sort((a, b) => b.count - a.count);
 
     const allPosLovers = [];
     for (const [, u] of users) {
@@ -523,22 +509,13 @@ const getSeasonAwards = async (req, res) => {
       gap: wvcR ? `${Math.round((wvcR.total - wvcW.total) * 10) / 10} pts lower` : null,
     });
 
-    // REQ 5a: Pity Award — Most 8th Places (matches up to 5 days ago)
-    if (pityCounts5d[0] && pityCounts5d[0].count > 0) awards.push({
-      type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award — Most 8th Places (till 5 days ago)',
-      winner: pityCounts5d[0].name, value: `${pityCounts5d[0].count}× 8th place`,
-      runnerUp: pityCounts5d[1]?.count > 0 ? { name: pityCounts5d[1].name, value: `${pityCounts5d[1].count}× 8th place` } : null,
-      thirdPlace: pityCounts5d[2]?.count > 0 ? { name: pityCounts5d[2].name, value: `${pityCounts5d[2].count}× 8th place` } : null,
-      gap: pityCounts5d[1]?.count > 0 ? cntGap(pityCounts5d[0].count, pityCounts5d[1].count, 'times') : null,
-    });
-
-    // REQ 5b: Pity Award — Biggest rank drop in last 5 days (avg-points based season rank)
-    if (rankDrops.length > 0) awards.push({
-      type: 'pity_drop', icon: 'keyboard_double_arrow_down', title: 'Pity Award — Biggest Rank Drop (last 5 days)',
-      winner: rankDrops[0].name, value: `#${rankDrops[0].before} → #${rankDrops[0].now} (↓${rankDrops[0].drop})`,
-      runnerUp: rankDrops[1] ? { name: rankDrops[1].name, value: `#${rankDrops[1].before} → #${rankDrops[1].now} (↓${rankDrops[1].drop})` } : null,
-      thirdPlace: rankDrops[2] ? { name: rankDrops[2].name, value: `#${rankDrops[2].before} → #${rankDrops[2].now} (↓${rankDrops[2].drop})` } : null,
-      gap: null,
+    // REQ 5: Pity Award — Most 7th (before 4 joined) & 9th (after 4 joined) Places
+    if (pityCounts[0] && pityCounts[0].count > 0) awards.push({
+      type: 'pity_award', icon: 'sentiment_dissatisfied', title: 'Pity Award — Most 7th / 9th Places',
+      winner: pityCounts[0].name, value: `${pityCounts[0].count} times`,
+      runnerUp: pityCounts[1] && pityCounts[1].count > 0 ? { name: pityCounts[1].name, value: `${pityCounts[1].count} times` } : null,
+      thirdPlace: pityCounts[2] && pityCounts[2].count > 0 ? { name: pityCounts[2].name, value: `${pityCounts[2].count} times` } : null,
+      gap: pityCounts[1] ? cntGap(pityCounts[0].count, pityCounts[1].count, 'times') : null,
     });
 
     // 10. Position Lover (Max times at same position)
@@ -645,28 +622,7 @@ const getSeasonAwards = async (req, res) => {
       gap: larR ? `${Math.round((larR.total - larW.total) * 10) / 10} pts lower` : null,
     });
 
-    // REQ 3: Compute award pool for tentative cash amounts shown in Season Awards tab
-    const allMatchParticipants = await FantasyTeam.find({ matchId: { $in: matchIds }, userId: { $in: activeMemberIds } })
-      .select('userId matchId').populate('userId', '_id').lean();
-    let totalAwardPool = 0;
-    for (const m of completedMatches) {
-      const mid = String(m._id);
-      const matchDate = m.scheduledAt;
-      const mTeams = allMatchParticipants.filter(t =>
-        String(t.matchId) === mid && t.userId != null &&
-        !(matchDate < NEW_RULES_CUTOFF && NEW_MEMBER_IDS.has(String(t.userId._id)))
-      );
-      if (mTeams.length === 0) continue;
-      const prizeTable = getPrizeTable(matchDate);
-      const pot = mTeams.reduce((sum, t) => sum + getEntryFee(t.userId._id, matchDate), 0);
-      const prizeSum = prizeTable.reduce((a, b) => a + b, 0);
-      totalAwardPool += Math.max(0, pot - prizeSum);
-    }
-    // 1st and 2nd in each award get cash — 3rd is honorary
-    const cashSlots = awards.length * 2;
-    const perAward = cashSlots > 0 ? Math.round(totalAwardPool / cashSlots) : 0;
-
-    res.json({ awards, matchesPlayed: matchIds.length, awardPool: Math.round(totalAwardPool), perAward });
+    res.json({ awards, matchesPlayed: matchIds.length, awardPool: 7000, perAward: 350 });
   } catch (err) {
     console.error('Season awards error:', err);
     res.status(500).json({ message: err.message });
